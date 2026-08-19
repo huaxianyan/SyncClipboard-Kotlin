@@ -13,13 +13,13 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
-import android.widget.Toast
 import com.huaxianyan.syncclipboard.sync.ClipboardTransferService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -39,6 +39,7 @@ class TileActionActivity : Activity() {
         super.onCreate(savedInstanceState)
         setFinishOnTouchOutside(false)
         createContentView()
+        showRunningState(resolveAction(intent))
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -61,11 +62,7 @@ class TileActionActivity : Activity() {
         val action = resolveAction(intent)
         val startedAt = SystemClock.elapsedRealtime()
         Log.i(TAG, "Action started: $action")
-        message.text = when (action) {
-            Action.UPLOAD_CLIPBOARD, Action.UPLOAD_SHARED -> "正在上传……"
-            Action.DOWNLOAD_CLIPBOARD -> "正在下载……"
-        }
-        progress.visibility = ProgressBar.VISIBLE
+        showRunningState(action)
 
         actionJob = scope.launch {
             val result = runCatching {
@@ -80,7 +77,9 @@ class TileActionActivity : Activity() {
             }
             result.onSuccess {
                 Log.i(TAG, "Action succeeded: $action, elapsed=${SystemClock.elapsedRealtime() - startedAt}ms")
-                Toast.makeText(this@TileActionActivity, it, Toast.LENGTH_SHORT).show()
+                progress.visibility = ProgressBar.GONE
+                message.text = it
+                delay(SUCCESS_VISIBLE_DURATION_MS)
                 finishAndRemoveTask()
             }.onFailure {
                 Log.e(TAG, "Action failed: $action, elapsed=${SystemClock.elapsedRealtime() - startedAt}ms", it)
@@ -89,6 +88,14 @@ class TileActionActivity : Activity() {
                 message.setOnClickListener { finishAndRemoveTask() }
             }
         }
+    }
+
+    private fun showRunningState(action: Action) {
+        message.text = when (action) {
+            Action.UPLOAD_CLIPBOARD, Action.UPLOAD_SHARED -> "正在上传……"
+            Action.DOWNLOAD_CLIPBOARD -> "正在下载……"
+        }
+        progress.visibility = ProgressBar.VISIBLE
     }
 
     private fun resolveAction(intent: Intent): Action {
@@ -144,6 +151,7 @@ class TileActionActivity : Activity() {
 
     companion object {
         private const val TAG = "TileActionActivity"
+        private const val SUCCESS_VISIBLE_DURATION_MS = 700L
         const val ACTION_UPLOAD = "com.huaxianyan.syncclipboard.action.UPLOAD"
         const val ACTION_DOWNLOAD = "com.huaxianyan.syncclipboard.action.DOWNLOAD"
     }
