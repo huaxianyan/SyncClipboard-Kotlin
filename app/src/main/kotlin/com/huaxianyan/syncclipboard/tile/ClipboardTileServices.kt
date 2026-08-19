@@ -29,11 +29,15 @@ abstract class ClipboardTileService : TileService() {
     override fun onClick() {
         super.onClick()
         Log.i(TAG, "Tile clicked: service=${javaClass.simpleName}, action=$tileAction")
-        if (tileAction == TileActionActivity.ACTION_DOWNLOAD) {
+        val intent = if (tileAction == TileActionActivity.ACTION_DOWNLOAD) {
             downloadDirectly()
+            Intent(this, CollapsePanelActivity::class.java)
         } else {
-            launchFocusedActivity()
+            Intent(this, TileActionActivity::class.java).apply { action = tileAction }
+        }.apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
+        launchActivityAndCollapse(intent)
     }
 
     private fun downloadDirectly() {
@@ -76,11 +80,7 @@ abstract class ClipboardTileService : TileService() {
     }
 
     @SuppressLint("StartActivityAndCollapseDeprecated")
-    private fun launchFocusedActivity() {
-        val intent = Intent(this, TileActionActivity::class.java).apply {
-            action = tileAction
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        }
+    private fun launchActivityAndCollapse(intent: Intent) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             val pendingIntent = PendingIntent.getActivity(
                 this,
