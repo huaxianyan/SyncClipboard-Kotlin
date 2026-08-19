@@ -1,193 +1,436 @@
 package com.huaxianyan.syncclipboard.ui
 
-import android.app.Activity
 import android.app.StatusBarManager
 import android.content.ComponentName
-import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
-import android.text.InputType
-import android.view.Gravity
-import android.view.ViewGroup
-import android.widget.Button
-import android.widget.CheckBox
-import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
-import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.LargeTopAppBar
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.unit.dp
 import com.huaxianyan.syncclipboard.R
 import com.huaxianyan.syncclipboard.data.ServerConfig
 import com.huaxianyan.syncclipboard.data.SettingsRepository
 import com.huaxianyan.syncclipboard.net.SyncClipboardClient
 import com.huaxianyan.syncclipboard.tile.DownloadClipboardTileService
 import com.huaxianyan.syncclipboard.tile.UploadClipboardTileService
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class MainActivity : Activity() {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private lateinit var url: EditText
-    private lateinit var username: EditText
-    private lateinit var password: EditText
-    private lateinit var trustInsecure: CheckBox
-    private lateinit var status: TextView
-
+class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        title = getString(R.string.app_name)
-        setContentView(createContentView())
-        loadSettings()
-    }
-
-    override fun onDestroy() {
-        scope.cancel()
-        super.onDestroy()
-    }
-
-    private fun createContentView(): ScrollView {
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(24), dp(24), dp(24), dp(32))
-        }
-        content.addView(TextView(this).apply {
-            text = getString(R.string.app_name)
-            textSize = 28f
-            setTypeface(typeface, Typeface.BOLD)
-        })
-        content.addView(TextView(this).apply {
-            text = "原生 Kotlin 客户端。磁贴使用轻量 Activity 直接同步，不启动 Flutter Engine。"
-            textSize = 15f
-            setPadding(0, dp(8), 0, dp(20))
-        })
-
-        url = field("服务器地址，例如 https://example.com/webdav/")
-        username = field("用户名")
-        password = field("密码").apply {
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-        }
-        trustInsecure = CheckBox(this).apply {
-            text = "信任不安全的 HTTPS 证书（仅限可信内网）"
-        }
-        content.addView(url)
-        content.addView(username)
-        content.addView(password)
-        content.addView(trustInsecure)
-
-        val buttons = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        buttons.addView(Button(this).apply {
-            text = "保存"
-            setOnClickListener { saveSettings() }
-        }, weightedParams())
-        buttons.addView(Button(this).apply {
-            text = "测试连接"
-            setOnClickListener { testConnection() }
-        }, weightedParams())
-        content.addView(buttons)
-
-        status = TextView(this).apply {
-            textSize = 14f
-            setPadding(0, dp(12), 0, dp(20))
-        }
-        content.addView(status)
-
-        content.addView(TextView(this).apply {
-            text = "快速设置磁贴"
-            textSize = 20f
-            setTypeface(typeface, Typeface.BOLD)
-        })
-        content.addView(TextView(this).apply {
-            text = "添加“上传剪贴板”和“下载剪贴板”磁贴。文本、图片和单个文件均受支持，也可以从相册或文件管理器分享给本应用上传。"
-            textSize = 15f
-            setPadding(0, dp(8), 0, dp(12))
-        })
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            content.addView(Button(this).apply {
-                text = "请求添加上传磁贴"
-                setOnClickListener { requestTile(UploadClipboardTileService::class.java, "Kotlin 上传", R.drawable.ic_tile_upload) }
-            })
-            content.addView(Button(this).apply {
-                text = "请求添加下载磁贴"
-                setOnClickListener { requestTile(DownloadClipboardTileService::class.java, "Kotlin 下载", R.drawable.ic_tile_download) }
-            })
-        }
-
-        return ScrollView(this).apply { addView(content) }
-    }
-
-    private fun loadSettings() {
-        SettingsRepository(this).loadServer()?.let {
-            url.setText(it.url)
-            username.setText(it.username)
-            password.setText(it.password)
-            trustInsecure.isChecked = it.trustInsecureCertificate
-        }
-    }
-
-    private fun currentConfig(): ServerConfig = ServerConfig(
-        url = url.text.toString(),
-        username = username.text.toString(),
-        password = password.text.toString(),
-        trustInsecureCertificate = trustInsecure.isChecked,
-    ).also { it.validate() }
-
-    private fun saveSettings() {
-        runCatching {
-            SettingsRepository(this).saveServer(currentConfig())
-        }.onSuccess {
-            status.text = "配置已保存"
-        }.onFailure {
-            status.text = it.message ?: "保存失败"
-        }
-    }
-
-    private fun testConnection() {
-        val config = runCatching { currentConfig() }.getOrElse {
-            status.text = it.message
-            return
-        }
-        status.text = "正在测试连接……"
-        scope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) { SyncClipboardClient(config).testConnection() }
-            }.onSuccess {
-                status.text = "连接成功"
-            }.onFailure {
-                status.text = it.message ?: "连接失败"
+        enableEdgeToEdge()
+        setContent {
+            SyncClipboardTheme {
+                SettingsScreen(::requestTile)
             }
         }
     }
 
-    private fun requestTile(service: Class<*>, label: String, icon: Int) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
-        val manager = getSystemService(StatusBarManager::class.java)
-        manager.requestAddTileService(
+    private fun requestTile(
+        service: Class<*>,
+        label: String,
+        icon: Int,
+        onResult: (String) -> Unit,
+    ) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            onResult("请从快速设置编辑页手动添加磁贴")
+            return
+        }
+        getSystemService(StatusBarManager::class.java).requestAddTileService(
             ComponentName(this, service),
             label,
             android.graphics.drawable.Icon.createWithResource(this, icon),
             mainExecutor,
         ) { result ->
-            Toast.makeText(this, "系统返回：$result", Toast.LENGTH_SHORT).show()
+            onResult(
+                if (result == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED) {
+                    "磁贴已添加"
+                } else {
+                    "未添加磁贴，可从快速设置编辑页手动添加"
+                },
+            )
         }
     }
+}
 
-    private fun field(hintText: String): EditText = EditText(this).apply {
-        hint = hintText
-        textSize = 16f
-        isSingleLine = true
-        layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT,
-        )
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SettingsScreen(
+    requestTile: (Class<*>, String, Int, (String) -> Unit) -> Unit,
+) {
+    val context = LocalContext.current
+    val repository = remember { SettingsRepository(context.applicationContext) }
+    val saved = remember { repository.loadServer() }
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    var serverUrl by rememberSaveable { mutableStateOf(saved?.url.orEmpty()) }
+    var username by rememberSaveable { mutableStateOf(saved?.username.orEmpty()) }
+    var password by rememberSaveable { mutableStateOf(saved?.password.orEmpty()) }
+    var trustInsecure by rememberSaveable { mutableStateOf(saved?.trustInsecureCertificate ?: false) }
+    var passwordVisible by rememberSaveable { mutableStateOf(false) }
+    var saving by rememberSaveable { mutableStateOf(false) }
+    var testing by rememberSaveable { mutableStateOf(false) }
+
+    fun currentConfig() = ServerConfig(
+        url = serverUrl,
+        username = username,
+        password = password,
+        trustInsecureCertificate = trustInsecure,
+    ).also { it.validate() }
+
+    fun showMessage(message: String) {
+        scope.launch { snackbar.showSnackbar(message) }
     }
 
-    private fun weightedParams() = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+    Scaffold(
+        topBar = { LargeTopAppBar(title = { Text("SyncClipboard") }) },
+        snackbarHost = { SnackbarHost(snackbar) },
+    ) { contentPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(contentPadding),
+            contentAlignment = Alignment.TopCenter,
+        ) {
+            Column(
+                modifier = Modifier
+                    .widthIn(max = 720.dp)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                IntroCard()
+                ServerCard(
+                    serverUrl = serverUrl,
+                    onServerUrlChange = { serverUrl = it },
+                    username = username,
+                    onUsernameChange = { username = it },
+                    password = password,
+                    onPasswordChange = { password = it },
+                    passwordVisible = passwordVisible,
+                    onPasswordVisibilityChange = { passwordVisible = !passwordVisible },
+                    trustInsecure = trustInsecure,
+                    onTrustInsecureChange = { trustInsecure = it },
+                    saving = saving,
+                    testing = testing,
+                    onSave = {
+                        val config = runCatching { currentConfig() }.getOrElse {
+                            showMessage(it.message ?: "请检查服务器配置")
+                            return@ServerCard
+                        }
+                        saving = true
+                        scope.launch {
+                            runCatching {
+                                withContext(Dispatchers.IO) { repository.saveServer(config) }
+                            }.onSuccess {
+                                showMessage("服务器配置已保存")
+                            }.onFailure {
+                                showMessage(it.message ?: "保存失败，请检查填写内容")
+                            }
+                            saving = false
+                        }
+                    },
+                    onTest = {
+                        val config = runCatching { currentConfig() }.getOrElse {
+                            showMessage(it.message ?: "请检查服务器配置")
+                            return@ServerCard
+                        }
+                        testing = true
+                        scope.launch {
+                            runCatching {
+                                withContext(Dispatchers.IO) {
+                                    SyncClipboardClient(config).testConnection()
+                                }
+                            }.onSuccess {
+                                showMessage("连接成功")
+                            }.onFailure {
+                                showMessage(it.message ?: "连接失败，请检查网络和服务器配置")
+                            }
+                            testing = false
+                        }
+                    },
+                )
+                TileCard(
+                    onAddUpload = {
+                        requestTile(
+                            UploadClipboardTileService::class.java,
+                            "Kotlin 上传",
+                            R.drawable.ic_tile_upload,
+                            ::showMessage,
+                        )
+                    },
+                    onAddDownload = {
+                        requestTile(
+                            DownloadClipboardTileService::class.java,
+                            "Kotlin 下载",
+                            R.drawable.ic_tile_download,
+                            ::showMessage,
+                        )
+                    },
+                )
+                Text(
+                    text = "SyncClipboard Kotlin · 0.1.0",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .padding(top = 4.dp, bottom = 24.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun IntroCard() {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+        ),
+        shape = MaterialTheme.shapes.extraLarge,
+    ) {
+        Column(
+            modifier = Modifier.padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = "剪贴板，随手同步",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = "配置服务器后，即可通过快速设置磁贴上传或下载文本、图片和文件。",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ServerCard(
+    serverUrl: String,
+    onServerUrlChange: (String) -> Unit,
+    username: String,
+    onUsernameChange: (String) -> Unit,
+    password: String,
+    onPasswordChange: (String) -> Unit,
+    passwordVisible: Boolean,
+    onPasswordVisibilityChange: () -> Unit,
+    trustInsecure: Boolean,
+    onTrustInsecureChange: (Boolean) -> Unit,
+    saving: Boolean,
+    testing: Boolean,
+    onSave: () -> Unit,
+    onTest: () -> Unit,
+) {
+    SectionCard(title = "服务器") {
+        OutlinedTextField(
+            value = serverUrl,
+            onValueChange = onServerUrlChange,
+            label = { Text("服务器地址") },
+            placeholder = { Text("https://example.com/") },
+            supportingText = { Text("填写 SyncClipboard 服务地址") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Uri,
+                imeAction = ImeAction.Next,
+            ),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = username,
+            onValueChange = onUsernameChange,
+            label = { Text("用户名") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = password,
+            onValueChange = onPasswordChange,
+            label = { Text("密码") },
+            singleLine = true,
+            visualTransformation = if (passwordVisible) {
+                VisualTransformation.None
+            } else {
+                PasswordVisualTransformation()
+            },
+            trailingIcon = {
+                TextButton(onClick = onPasswordVisibilityChange) {
+                    Text(if (passwordVisible) "隐藏" else "显示")
+                }
+            },
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Password,
+                imeAction = ImeAction.Done,
+            ),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("允许不受信任的 HTTPS 证书", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "仅在你信任的内网中启用",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(checked = trustInsecure, onCheckedChange = onTrustInsecureChange)
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            FilledTonalButton(
+                onClick = onTest,
+                enabled = !testing,
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
+                modifier = Modifier.weight(1f),
+            ) {
+                if (testing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                    )
+                    Spacer(Modifier.size(8.dp))
+                }
+                Text(if (testing) "正在连接" else "测试连接")
+            }
+            Button(
+                onClick = onSave,
+                enabled = !saving,
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
+                modifier = Modifier.weight(1f),
+            ) {
+                if (saving) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                    )
+                    Spacer(Modifier.size(8.dp))
+                }
+                Text(if (saving) "正在保存" else "保存配置")
+            }
+        }
+    }
+}
+
+@Composable
+private fun TileCard(
+    onAddUpload: () -> Unit,
+    onAddDownload: () -> Unit,
+) {
+    SectionCard(title = "快速设置磁贴") {
+        Text(
+            text = "从通知栏快速上传当前剪贴板，或下载服务器上的最新内容。",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        FilledTonalButton(onClick = onAddUpload, modifier = Modifier.fillMaxWidth()) {
+            Text("添加上传磁贴")
+        }
+        FilledTonalButton(onClick = onAddDownload, modifier = Modifier.fillMaxWidth()) {
+            Text("添加下载磁贴")
+        }
+    }
+}
+
+@Composable
+private fun SectionCard(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+        shape = MaterialTheme.shapes.extraLarge,
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+            content()
+        }
+    }
+}
+
+@Composable
+private fun SyncClipboardTheme(content: @Composable () -> Unit) {
+    val context = LocalContext.current
+    val dark = androidx.compose.foundation.isSystemInDarkTheme()
+    val dynamic = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !LocalInspectionMode.current
+    val colors = when {
+        dynamic && dark -> dynamicDarkColorScheme(context)
+        dynamic -> dynamicLightColorScheme(context)
+        dark -> darkColorScheme()
+        else -> lightColorScheme()
+    }
+    MaterialTheme(colorScheme = colors, content = content)
 }

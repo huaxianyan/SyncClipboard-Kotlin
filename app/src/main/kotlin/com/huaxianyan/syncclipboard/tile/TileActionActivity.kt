@@ -2,7 +2,9 @@ package com.huaxianyan.syncclipboard.tile
 
 import android.app.Activity
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.SystemClock
@@ -13,6 +15,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import com.huaxianyan.syncclipboard.R
 import com.huaxianyan.syncclipboard.sync.ClipboardTransferService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -31,7 +34,9 @@ import kotlinx.coroutines.withContext
  */
 class TileActionActivity : Activity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private lateinit var card: LinearLayout
     private lateinit var progress: ProgressBar
+    private lateinit var title: TextView
     private lateinit var message: TextView
     private var actionJob: Job? = null
 
@@ -84,16 +89,24 @@ class TileActionActivity : Activity() {
             }.onFailure {
                 Log.e(TAG, "Action failed: $action, elapsed=${SystemClock.elapsedRealtime() - startedAt}ms", it)
                 progress.visibility = ProgressBar.GONE
-                message.text = it.message ?: "操作失败"
-                message.setOnClickListener { finishAndRemoveTask() }
+                title.text = "操作失败"
+                title.setTextColor(getColor(R.color.md_error))
+                message.text = "${it.message ?: "操作未完成，请检查配置和网络"}\n\n轻触卡片关闭"
+                card.setOnClickListener { finishAndRemoveTask() }
             }
         }
     }
 
     private fun showRunningState(action: Action) {
+        title.text = when (action) {
+            Action.UPLOAD_CLIPBOARD, Action.UPLOAD_SHARED -> "上传剪贴板"
+            Action.DOWNLOAD_CLIPBOARD -> "下载剪贴板"
+        }
+        title.setTextColor(getColor(R.color.md_on_surface))
+        card.setOnClickListener(null)
         message.text = when (action) {
-            Action.UPLOAD_CLIPBOARD, Action.UPLOAD_SHARED -> "正在上传……"
-            Action.DOWNLOAD_CLIPBOARD -> "正在下载……"
+            Action.UPLOAD_CLIPBOARD, Action.UPLOAD_SHARED -> "正在上传内容……"
+            Action.DOWNLOAD_CLIPBOARD -> "正在获取最新内容……"
         }
         progress.visibility = ProgressBar.VISIBLE
     }
@@ -107,32 +120,47 @@ class TileActionActivity : Activity() {
     }
 
     private fun createContentView() {
+        window.setDimAmount(0.32f)
         val root = FrameLayout(this).apply {
             setBackgroundColor(Color.TRANSPARENT)
             setPadding(dp(24), dp(24), dp(24), dp(24))
         }
-        val card = LinearLayout(this).apply {
+        card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(dp(32), dp(24), dp(32), dp(24))
+            gravity = Gravity.CENTER_HORIZONTAL
+            elevation = dp(6).toFloat()
+            setPadding(dp(28), dp(28), dp(28), dp(24))
             background = GradientDrawable().apply {
-                setColor(Color.rgb(38, 38, 38))
-                cornerRadius = dp(18).toFloat()
+                setColor(getColor(R.color.md_surface_container_high))
+                cornerRadius = dp(28).toFloat()
             }
         }
         progress = ProgressBar(this).apply {
             isIndeterminate = true
+            indeterminateTintList = ColorStateList.valueOf(getColor(R.color.md_primary))
+        }
+        title = TextView(this).apply {
+            setTextColor(getColor(R.color.md_on_surface))
+            textSize = 22f
+            gravity = Gravity.CENTER
+            setTypeface(typeface, Typeface.BOLD)
+            setPadding(0, dp(20), 0, 0)
         }
         message = TextView(this).apply {
-            setTextColor(Color.WHITE)
-            textSize = 16f
+            setTextColor(getColor(R.color.md_on_surface_variant))
+            textSize = 14f
             gravity = Gravity.CENTER
-            setPadding(0, dp(16), 0, 0)
+            setLineSpacing(0f, 1.15f)
+            setPadding(0, dp(8), 0, 0)
         }
-        card.addView(progress, LinearLayout.LayoutParams(dp(48), dp(48)))
+        card.addView(progress, LinearLayout.LayoutParams(dp(44), dp(44)))
+        card.addView(
+            title,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
+        )
         card.addView(
             message,
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT),
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
         )
         root.addView(
             card,
@@ -140,7 +168,7 @@ class TileActionActivity : Activity() {
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.CENTER,
-            ).apply { width = dp(320) },
+            ).apply { width = dp(328) },
         )
         setContentView(root)
     }
