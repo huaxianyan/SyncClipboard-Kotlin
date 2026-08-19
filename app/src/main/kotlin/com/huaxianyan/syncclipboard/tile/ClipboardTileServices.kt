@@ -16,6 +16,10 @@ abstract class ClipboardTileService : TileService() {
         super.onStartListening()
         qsTile?.apply {
             state = Tile.STATE_INACTIVE
+            subtitle = if (tileAction == TileActionActivity.ACTION_DOWNLOAD) "点击下载" else "点击上传"
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                stateDescription = "就绪"
+            }
             updateTile()
         }
     }
@@ -24,6 +28,14 @@ abstract class ClipboardTileService : TileService() {
     override fun onClick() {
         super.onClick()
         Log.i(TAG, "Tile clicked: service=${javaClass.simpleName}, action=$tileAction")
+        qsTile?.apply {
+            state = Tile.STATE_ACTIVE
+            subtitle = "正在启动……"
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                stateDescription = "正在处理"
+            }
+            updateTile()
+        }
         val intent = Intent(this, TileActionActivity::class.java).apply {
             action = tileAction
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
