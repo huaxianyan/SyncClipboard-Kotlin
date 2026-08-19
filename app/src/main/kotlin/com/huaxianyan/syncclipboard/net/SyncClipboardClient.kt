@@ -3,13 +3,23 @@ package com.huaxianyan.syncclipboard.net
 import com.huaxianyan.syncclipboard.data.ServerConfig
 import com.huaxianyan.syncclipboard.sync.ClipboardPayload
 import com.huaxianyan.syncclipboard.sync.SyncException
+import android.os.SystemClock
+import android.util.Log
+import okhttp3.Call
 import okhttp3.Credentials
+import okhttp3.EventListener
+import okhttp3.Handshake
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
 import okhttp3.Request
+import okhttp3.Response
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.io.IOException
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.Proxy
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
@@ -105,6 +115,7 @@ private object ClientCache {
 
     private fun build(config: ServerConfig): OkHttpClient {
         val builder = OkHttpClient.Builder()
+            .eventListenerFactory { NetworkTimingEventListener() }
             .connectTimeout(5, TimeUnit.SECONDS)
             .writeTimeout(10, TimeUnit.MINUTES)
             .readTimeout(5, TimeUnit.MINUTES)
@@ -124,5 +135,77 @@ private object ClientCache {
         }
 
         return builder.build()
+    }
+}
+
+private class NetworkTimingEventListener : EventListener() {
+    private val callStartedAt = now()
+    private var dnsStartedAt: Long? = null
+    private var dnsDuration: Long? = null
+    private var connectStartedAt: Long? = null
+    private var connectDuration: Long? = null
+    private var tlsStartedAt: Long? = null
+    private var tlsDuration: Long? = null
+    private var responseHeadersAt: Long? = null
+
+    override fun dnsStart(call: Call, domainName: String) {
+        dnsStartedAt = now()
+    }
+
+    override fun dnsEnd(call: Call, domainName: String, inetAddressList: List<InetAddress>) {
+        dnsDuration = elapsedSince(dnsStartedAt)
+    }
+
+    override fun connectStart(call: Call, inetSocketAddress: InetSocketAddress, proxy: Proxy) {
+        connectStartedAt = now()
+    }
+
+    override fun secureConnectStart(call: Call) {
+        tlsStartedAt = now()
+    }
+
+    override fun secureConnectEnd(call: Call, handshake: Handshake?) {
+        tlsDuration = elapsedSince(tlsStartedAt)
+    }
+
+    override fun connectEnd(
+        call: Call,
+        inetSocketAddress: InetSocketAddress,
+        proxy: Proxy,
+        protocol: Protocol?,
+    ) {
+        connectDuration = elapsedSince(connectStartedAt)
+    }
+
+    override fun responseHeadersEnd(call: Call, response: Response) {
+        responseHeadersAt = now()
+    }
+
+    override fun callEnd(call: Call) {
+        log("完成", now())
+    }
+
+    override fun callFailed(call: Call, ioe: IOException) {
+        log("失败", now())
+    }
+
+    private fun log(result: String, endedAt: Long) {
+        Log.i(
+            TAG,
+            "HTTP $result: total=${endedAt - callStartedAt}ms, " +
+                "connection=${if (connectStartedAt == null) "reused" else "new"}, " +
+                "dns=${dnsDuration.format()}, connect=${connectDuration.format()}, " +
+                "tls=${tlsDuration.format()}, ttfb=${responseHeadersAt?.minus(callStartedAt).format()}",
+        )
+    }
+
+    private fun elapsedSince(startedAt: Long?): Long? = startedAt?.let { now() - it }
+
+    private fun Long?.format(): String = this?.let { "${it}ms" } ?: "-"
+
+    private fun now(): Long = SystemClock.elapsedRealtime()
+
+    private companion object {
+        const val TAG = "SyncClipboardNetwork"
     }
 }
