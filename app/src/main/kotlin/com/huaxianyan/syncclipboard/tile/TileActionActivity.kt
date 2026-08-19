@@ -2,7 +2,6 @@ package com.huaxianyan.syncclipboard.tile
 
 import android.app.Activity
 import android.content.Intent
-import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -10,10 +9,10 @@ import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.widget.ProgressBar
 import android.widget.TextView
 import com.huaxianyan.syncclipboard.R
 import com.huaxianyan.syncclipboard.sync.ClipboardTransferService
@@ -35,7 +34,7 @@ import kotlinx.coroutines.withContext
 class TileActionActivity : Activity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var card: LinearLayout
-    private lateinit var progress: ProgressBar
+    private lateinit var progress: CircularWavyProgressView
     private lateinit var title: TextView
     private lateinit var message: TextView
     private var actionJob: Job? = null
@@ -82,13 +81,13 @@ class TileActionActivity : Activity() {
             }
             result.onSuccess {
                 Log.i(TAG, "Action succeeded: $action, elapsed=${SystemClock.elapsedRealtime() - startedAt}ms")
-                progress.visibility = ProgressBar.GONE
+                progress.visibility = View.GONE
                 message.text = it
                 delay(SUCCESS_VISIBLE_DURATION_MS)
                 finishAndRemoveTask()
             }.onFailure {
                 Log.e(TAG, "Action failed: $action, elapsed=${SystemClock.elapsedRealtime() - startedAt}ms", it)
-                progress.visibility = ProgressBar.GONE
+                progress.visibility = View.GONE
                 title.text = "操作失败"
                 title.setTextColor(getColor(R.color.md_error))
                 message.text = "${it.message ?: "操作未完成，请检查配置和网络"}\n\n轻触卡片关闭"
@@ -108,7 +107,7 @@ class TileActionActivity : Activity() {
             Action.UPLOAD_CLIPBOARD, Action.UPLOAD_SHARED -> "正在上传内容……"
             Action.DOWNLOAD_CLIPBOARD -> "正在获取最新内容……"
         }
-        progress.visibility = ProgressBar.VISIBLE
+        progress.visibility = View.VISIBLE
     }
 
     private fun resolveAction(intent: Intent): Action {
@@ -135,9 +134,9 @@ class TileActionActivity : Activity() {
                 cornerRadius = dp(28).toFloat()
             }
         }
-        progress = ProgressBar(this).apply {
-            isIndeterminate = true
-            indeterminateTintList = ColorStateList.valueOf(getColor(R.color.md_primary))
+        progress = CircularWavyProgressView(this).apply {
+            indicatorColor = getColor(R.color.md_primary)
+            contentDescription = "正在同步"
         }
         title = TextView(this).apply {
             setTextColor(getColor(R.color.md_on_surface))
@@ -153,7 +152,7 @@ class TileActionActivity : Activity() {
             setLineSpacing(0f, 1.15f)
             setPadding(0, dp(8), 0, 0)
         }
-        card.addView(progress, LinearLayout.LayoutParams(dp(44), dp(44)))
+        card.addView(progress, LinearLayout.LayoutParams(dp(48), dp(48)))
         card.addView(
             title,
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
