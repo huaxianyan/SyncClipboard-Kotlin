@@ -58,7 +58,6 @@ class TileActionActivity : Activity() {
     }
 
     private fun startAction(intent: Intent) {
-        TileFeedback.dismiss()
         val action = resolveAction(intent)
         val startedAt = SystemClock.elapsedRealtime()
         Log.i(TAG, "Action started: $action")
