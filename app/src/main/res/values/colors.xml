@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="primary">#6750A4</color>
-    <color name="primary_dark">#4F378B</color>
-    <color name="md_surface_container_high">#ECE6F0</color>
-    <color name="md_on_surface">#1D1B20</color>
-    <color name="md_on_surface_variant">#49454F</color>
-    <color name="md_primary">#6750A4</color>
-    <color name="md_error">#B3261E</color>
+    <color name="primary">#0061A4</color>
+    <color name="primary_dark">#00497D</color>
+    <color name="md_surface_container_high">#E7E9EE</color>
+    <color name="md_on_surface">#191C20</color>
+    <color name="md_on_surface_variant">#43474E</color>
+    <color name="md_primary">#0061A4</color>
+    <color name="md_error">#BA1A1A</color>
 </resources>

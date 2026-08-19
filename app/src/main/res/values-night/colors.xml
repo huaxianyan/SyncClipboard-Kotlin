@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="md_surface_container_high">#2B2930</color>
-    <color name="md_on_surface">#E6E0E9</color>
-    <color name="md_on_surface_variant">#CAC4D0</color>
-    <color name="md_primary">#D0BCFF</color>
-    <color name="md_error">#F2B8B5</color>
+    <color name="md_surface_container_high">#282A2E</color>
+    <color name="md_on_surface">#E2E2E9</color>
+    <color name="md_on_surface_variant">#C3C6CF</color>
+    <color name="md_primary">#9ECAFF</color>
+    <color name="md_error">#FFB4AB</color>
 </resources>
