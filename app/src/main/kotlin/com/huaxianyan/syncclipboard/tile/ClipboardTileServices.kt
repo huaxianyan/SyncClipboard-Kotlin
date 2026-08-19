@@ -9,7 +9,7 @@ import android.service.quicksettings.TileService
 import android.util.Log
 
 abstract class ClipboardTileService : TileService() {
-    abstract val action: String
+    abstract val tileAction: String
     abstract val requestCode: Int
 
     override fun onStartListening() {
@@ -23,9 +23,9 @@ abstract class ClipboardTileService : TileService() {
     @SuppressLint("StartActivityAndCollapseDeprecated")
     override fun onClick() {
         super.onClick()
-        Log.i(TAG, "Tile clicked: service=${javaClass.simpleName}, action=$action")
+        Log.i(TAG, "Tile clicked: service=${javaClass.simpleName}, action=$tileAction")
         val intent = Intent(this, TileActionActivity::class.java).apply {
-            setAction(action)
+            action = tileAction
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -48,11 +48,11 @@ abstract class ClipboardTileService : TileService() {
 }
 
 class UploadClipboardTileService : ClipboardTileService() {
-    override val action = TileActionActivity.ACTION_UPLOAD
+    override val tileAction = TileActionActivity.ACTION_UPLOAD
     override val requestCode = 1
 }
 
 class DownloadClipboardTileService : ClipboardTileService() {
-    override val action = TileActionActivity.ACTION_DOWNLOAD
+    override val tileAction = TileActionActivity.ACTION_DOWNLOAD
     override val requestCode = 2
 }
