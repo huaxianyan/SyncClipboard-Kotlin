@@ -10,6 +10,7 @@ import android.os.Build
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import com.huaxianyan.syncclipboard.data.SettingsRepository
+import com.huaxianyan.syncclipboard.data.SyncDirection
 import com.huaxianyan.syncclipboard.net.SyncClipboardClient
 import java.io.ByteArrayInputStream
 import java.text.SimpleDateFormat
@@ -47,7 +48,7 @@ class ClipboardTransferService(private val context: Context) {
     fun downloadClipboard(): String {
         val client = client()
         val payload = client.getClipboard()
-        return when (payload.type) {
+        val result = when (payload.type) {
             ClipboardType.TEXT -> {
                 val text = if (payload.hasData) {
                     val name = payload.dataName ?: throw SyncException("文本数据缺少文件名")
@@ -78,6 +79,8 @@ class ClipboardTransferService(private val context: Context) {
                 "下载成功：已解压 $count 个文件到 Download/SyncClipboard/$folder"
             }
         }
+        SettingsRepository(context).recordSuccessfulSync(SyncDirection.DOWNLOAD)
+        return result
     }
 
     private fun uploadPrepared(prepared: PreparedUpload): String {
@@ -86,6 +89,7 @@ class ClipboardTransferService(private val context: Context) {
             client.putFile(prepared.fileName!!, prepared.bytes!!)
         }
         client.putClipboard(prepared.payload)
+        SettingsRepository(context).recordSuccessfulSync(SyncDirection.UPLOAD)
         return when (prepared.payload.type) {
             ClipboardType.TEXT -> "上传成功：剪贴板文本已同步"
             ClipboardType.IMAGE -> "上传成功：剪贴板图片已同步"
