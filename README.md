@@ -4,13 +4,14 @@
 
 ## 项目说明
 
-本项目参考 [SyncClipboard Flutter](https://github.com/Jeric-X/SyncClipboard) 的核心同步逻辑，并保持 `SyncClipboard.json`、内容类型和 SHA-256 算法兼容。
+本项目参考 [SyncClipboard Flutter](https://github.com/bling-yshs/sync-clipboard-flutter) 的核心同步逻辑，并保持 `SyncClipboard.json`、内容类型和 SHA-256 算法兼容。
 
 客户端采用原生 Kotlin 和 Android 平台能力实现，目标是提供更好的原生体验与性能。快速设置磁贴使用轻量原生 Activity，不依赖 Flutter 或 Compose 初始化；主界面使用 Jetpack Compose Material 3。
 
 ## 当前功能
 
 - 首页显示服务器连接状态和上次成功同步时间
+- 多服务器方案的新增、编辑和切换
 - 上传和下载快速设置磁贴
 - 文本上传、下载及系统剪贴板写入
 - 超过 10,240 字符的文本以数据文件传输

@@ -32,6 +32,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -71,6 +73,7 @@ import androidx.compose.ui.unit.dp
 import com.huaxianyan.syncclipboard.R
 import com.huaxianyan.syncclipboard.data.LastSync
 import com.huaxianyan.syncclipboard.data.ServerConfig
+import com.huaxianyan.syncclipboard.data.ServerProfiles
 import com.huaxianyan.syncclipboard.data.SettingsRepository
 import com.huaxianyan.syncclipboard.data.SyncDirection
 import com.huaxianyan.syncclipboard.net.SyncClipboardClient
@@ -81,6 +84,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
+import java.util.UUID
 
 private val LightColorScheme = lightColorScheme(
     primary = Color(0xFF0061A4),
@@ -341,6 +345,11 @@ private fun LastSyncCard(lastSync: LastSync?) {
     }
 }
 
+private enum class ServerEditorMode {
+    ADD,
+    EDIT,
+}
+
 @Composable
 private fun SettingsPage(
     contentPadding: PaddingValues,
@@ -349,18 +358,35 @@ private fun SettingsPage(
 ) {
     val context = LocalContext.current
     val repository = remember { SettingsRepository(context.applicationContext) }
-    val saved = remember { repository.loadServer() }
     val scope = rememberCoroutineScope()
 
-    var serverUrl by rememberSaveable { mutableStateOf(saved?.url.orEmpty()) }
-    var username by rememberSaveable { mutableStateOf(saved?.username.orEmpty()) }
-    var password by rememberSaveable { mutableStateOf(saved?.password.orEmpty()) }
-    var trustInsecure by rememberSaveable { mutableStateOf(saved?.trustInsecureCertificate ?: false) }
+    var profiles by remember { mutableStateOf(repository.loadServerProfiles()) }
+    var editorMode by rememberSaveable { mutableStateOf<ServerEditorMode?>(null) }
+    var serverId by rememberSaveable { mutableStateOf("") }
+    var serverName by rememberSaveable { mutableStateOf("") }
+    var serverUrl by rememberSaveable { mutableStateOf("") }
+    var username by rememberSaveable { mutableStateOf("") }
+    var password by rememberSaveable { mutableStateOf("") }
+    var trustInsecure by rememberSaveable { mutableStateOf(false) }
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
     var saving by rememberSaveable { mutableStateOf(false) }
     var testing by rememberSaveable { mutableStateOf(false) }
 
+    fun openEditor(mode: ServerEditorMode) {
+        val source = profiles.activeServer.takeIf { mode == ServerEditorMode.EDIT }
+        serverId = source?.id ?: UUID.randomUUID().toString()
+        serverName = source?.name.orEmpty()
+        serverUrl = source?.url.orEmpty()
+        username = source?.username.orEmpty()
+        password = source?.password.orEmpty()
+        trustInsecure = source?.trustInsecureCertificate ?: false
+        passwordVisible = false
+        editorMode = mode
+    }
+
     fun currentConfig() = ServerConfig(
+        id = serverId,
+        name = serverName,
         url = serverUrl,
         username = username,
         password = password,
@@ -368,54 +394,76 @@ private fun SettingsPage(
     ).also { it.validate() }
 
     PageColumn(contentPadding) {
-        ServerCard(
-            serverUrl = serverUrl,
-            onServerUrlChange = { serverUrl = it },
-            username = username,
-            onUsernameChange = { username = it },
-            password = password,
-            onPasswordChange = { password = it },
-            passwordVisible = passwordVisible,
-            onPasswordVisibilityChange = { passwordVisible = !passwordVisible },
-            trustInsecure = trustInsecure,
-            onTrustInsecureChange = { trustInsecure = it },
-            saving = saving,
-            testing = testing,
-            onSave = {
-                val config = runCatching { currentConfig() }.getOrElse {
-                    showMessage(it.message ?: "请检查服务器配置")
-                    return@ServerCard
-                }
-                saving = true
+        ServerProfilesCard(
+            profiles = profiles,
+            editorOpen = editorMode != null,
+            onSelect = { server ->
                 scope.launch {
                     runCatching {
-                        withContext(Dispatchers.IO) { repository.saveServer(config) }
-                    }.onSuccess {
-                        showMessage("服务器配置已保存")
-                    }.onFailure {
-                        showMessage(it.message ?: "保存失败，请检查填写内容")
-                    }
-                    saving = false
+                        withContext(Dispatchers.IO) { repository.selectServer(server.id) }
+                    }.onSuccess { profiles = it }
+                        .onFailure { showMessage(it.message ?: "切换服务器失败，请重试") }
                 }
             },
-            onTest = {
-                val config = runCatching { currentConfig() }.getOrElse {
-                    showMessage(it.message ?: "请检查服务器配置")
-                    return@ServerCard
-                }
-                testing = true
-                scope.launch {
-                    runCatching {
-                        withContext(Dispatchers.IO) { SyncClipboardClient(config).testConnection() }
-                    }.onSuccess {
-                        showMessage("连接成功")
-                    }.onFailure {
-                        showMessage(it.message ?: "连接失败，请检查网络和服务器配置")
-                    }
-                    testing = false
-                }
-            },
+            onAdd = { openEditor(ServerEditorMode.ADD) },
+            onEdit = { openEditor(ServerEditorMode.EDIT) },
         )
+        editorMode?.let { mode ->
+            ServerEditorCard(
+                title = if (mode == ServerEditorMode.ADD) "新增服务器" else "编辑服务器",
+                serverName = serverName,
+                onServerNameChange = { serverName = it },
+                serverUrl = serverUrl,
+                onServerUrlChange = { serverUrl = it },
+                username = username,
+                onUsernameChange = { username = it },
+                password = password,
+                onPasswordChange = { password = it },
+                passwordVisible = passwordVisible,
+                onPasswordVisibilityChange = { passwordVisible = !passwordVisible },
+                trustInsecure = trustInsecure,
+                onTrustInsecureChange = { trustInsecure = it },
+                saving = saving,
+                testing = testing,
+                onCancel = { editorMode = null },
+                onSave = {
+                    val config = runCatching { currentConfig() }.getOrElse {
+                        showMessage(it.message ?: "请检查服务器配置")
+                        return@ServerEditorCard
+                    }
+                    saving = true
+                    scope.launch {
+                        runCatching {
+                            withContext(Dispatchers.IO) { repository.saveServer(config) }
+                        }.onSuccess {
+                            profiles = it
+                            editorMode = null
+                            showMessage(if (mode == ServerEditorMode.ADD) "服务器已添加" else "服务器配置已保存")
+                        }.onFailure {
+                            showMessage(it.message ?: "保存失败，请检查填写内容")
+                        }
+                        saving = false
+                    }
+                },
+                onTest = {
+                    val config = runCatching { currentConfig() }.getOrElse {
+                        showMessage(it.message ?: "请检查服务器配置")
+                        return@ServerEditorCard
+                    }
+                    testing = true
+                    scope.launch {
+                        runCatching {
+                            withContext(Dispatchers.IO) { SyncClipboardClient(config).testConnection() }
+                        }.onSuccess {
+                            showMessage("连接成功")
+                        }.onFailure {
+                            showMessage(it.message ?: "连接失败，请检查网络和服务器配置")
+                        }
+                        testing = false
+                    }
+                },
+            )
+        }
         TileCard(
             onAddUpload = {
                 requestTile(
@@ -469,7 +517,65 @@ private fun PageColumn(
 }
 
 @Composable
-private fun ServerCard(
+private fun ServerProfilesCard(
+    profiles: ServerProfiles,
+    editorOpen: Boolean,
+    onSelect: (ServerConfig) -> Unit,
+    onAdd: () -> Unit,
+    onEdit: () -> Unit,
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
+    val activeServer = profiles.activeServer
+
+    SectionCard(title = "服务器方案") {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(modifier = Modifier.weight(1f)) {
+                OutlinedButton(
+                    onClick = { menuExpanded = true },
+                    enabled = profiles.servers.isNotEmpty() && !editorOpen,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = activeServer?.displayName ?: "暂无方案",
+                        maxLines = 1,
+                    )
+                }
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
+                ) {
+                    profiles.servers.forEach { server ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(if (server.id == activeServer?.id) "✓ ${server.displayName}" else server.displayName)
+                            },
+                            onClick = {
+                                menuExpanded = false
+                                onSelect(server)
+                            },
+                        )
+                    }
+                }
+            }
+            FilledTonalButton(onClick = onAdd, enabled = !editorOpen) {
+                Text("新增")
+            }
+            TextButton(onClick = onEdit, enabled = activeServer != null && !editorOpen) {
+                Text("编辑")
+            }
+        }
+    }
+}
+
+@Composable
+private fun ServerEditorCard(
+    title: String,
+    serverName: String,
+    onServerNameChange: (String) -> Unit,
     serverUrl: String,
     onServerUrlChange: (String) -> Unit,
     username: String,
@@ -482,10 +588,20 @@ private fun ServerCard(
     onTrustInsecureChange: (Boolean) -> Unit,
     saving: Boolean,
     testing: Boolean,
+    onCancel: () -> Unit,
     onSave: () -> Unit,
     onTest: () -> Unit,
 ) {
-    SectionCard(title = "服务器") {
+    SectionCard(title = title) {
+        OutlinedTextField(
+            value = serverName,
+            onValueChange = onServerNameChange,
+            label = { Text("方案名称") },
+            supportingText = { Text("留空时显示服务器地址") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+            modifier = Modifier.fillMaxWidth(),
+        )
         OutlinedTextField(
             value = serverUrl,
             onValueChange = onServerUrlChange,
@@ -543,33 +659,38 @@ private fun ServerCard(
             }
             Switch(checked = trustInsecure, onCheckedChange = onTrustInsecureChange)
         }
+        FilledTonalButton(
+            onClick = onTest,
+            enabled = !testing && !saving,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            if (testing) {
+                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.size(8.dp))
+            }
+            Text(if (testing) "正在连接" else "测试连接")
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            FilledTonalButton(
-                onClick = onTest,
-                enabled = !testing,
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
+            OutlinedButton(
+                onClick = onCancel,
+                enabled = !saving && !testing,
                 modifier = Modifier.weight(1f),
             ) {
-                if (testing) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                    Spacer(Modifier.size(8.dp))
-                }
-                Text(if (testing) "正在连接" else "测试连接")
+                Text("取消")
             }
             Button(
                 onClick = onSave,
-                enabled = !saving,
-                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
+                enabled = !saving && !testing,
                 modifier = Modifier.weight(1f),
             ) {
                 if (saving) {
                     CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
                     Spacer(Modifier.size(8.dp))
                 }
-                Text(if (saving) "正在保存" else "保存配置")
+                Text(if (saving) "正在保存" else "保存")
             }
         }
     }
