@@ -2,11 +2,13 @@ package com.huaxianyan.syncclipboard.tile
 
 import android.annotation.SuppressLint
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import android.util.Log
+import android.widget.Toast
 
 abstract class ClipboardTileService : TileService() {
     abstract val tileAction: String
@@ -28,14 +30,12 @@ abstract class ClipboardTileService : TileService() {
     override fun onClick() {
         super.onClick()
         Log.i(TAG, "Tile clicked: service=${javaClass.simpleName}, action=$tileAction")
-        qsTile?.apply {
-            state = Tile.STATE_ACTIVE
-            subtitle = "正在启动……"
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                stateDescription = "正在处理"
-            }
-            updateTile()
+        val feedback = if (tileAction == TileActionActivity.ACTION_DOWNLOAD) {
+            "正在下载剪贴板……"
+        } else {
+            "正在上传剪贴板……"
         }
+        TileFeedback.show(this, feedback)
         val intent = Intent(this, TileActionActivity::class.java).apply {
             action = tileAction
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -56,6 +56,20 @@ abstract class ClipboardTileService : TileService() {
 
     private companion object {
         const val TAG = "ClipboardTileService"
+    }
+}
+
+internal object TileFeedback {
+    private var toast: Toast? = null
+
+    fun show(context: Context, message: String) {
+        toast?.cancel()
+        toast = Toast.makeText(context.applicationContext, message, Toast.LENGTH_SHORT).also { it.show() }
+    }
+
+    fun dismiss() {
+        toast?.cancel()
+        toast = null
     }
 }
 
