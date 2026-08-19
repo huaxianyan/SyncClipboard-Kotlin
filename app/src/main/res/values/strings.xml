@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">SyncClipboard Kotlin</string>
-    <string name="tile_upload">上传剪贴板</string>
-    <string name="tile_download">下载剪贴板</string>
+    <string name="tile_upload">Kotlin 上传</string>
+    <string name="tile_download">Kotlin 下载</string>
 </resources>

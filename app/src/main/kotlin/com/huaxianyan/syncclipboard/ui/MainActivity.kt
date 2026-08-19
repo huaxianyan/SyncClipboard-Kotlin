@@ -111,11 +111,11 @@ class MainActivity : Activity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             content.addView(Button(this).apply {
                 text = "请求添加上传磁贴"
-                setOnClickListener { requestTile(UploadClipboardTileService::class.java, "上传剪贴板", R.drawable.ic_tile_upload) }
+                setOnClickListener { requestTile(UploadClipboardTileService::class.java, "Kotlin 上传", R.drawable.ic_tile_upload) }
             })
             content.addView(Button(this).apply {
                 text = "请求添加下载磁贴"
-                setOnClickListener { requestTile(DownloadClipboardTileService::class.java, "下载剪贴板", R.drawable.ic_tile_download) }
+                setOnClickListener { requestTile(DownloadClipboardTileService::class.java, "Kotlin 下载", R.drawable.ic_tile_download) }
             })
         }
 

@@ -5,6 +5,8 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.SystemClock
+import android.util.Log
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -57,6 +59,8 @@ class TileActionActivity : Activity() {
 
     private fun startAction(intent: Intent) {
         val action = resolveAction(intent)
+        val startedAt = SystemClock.elapsedRealtime()
+        Log.i(TAG, "Action started: $action")
         message.text = when (action) {
             Action.UPLOAD_CLIPBOARD, Action.UPLOAD_SHARED -> "正在上传……"
             Action.DOWNLOAD_CLIPBOARD -> "正在下载……"
@@ -75,9 +79,11 @@ class TileActionActivity : Activity() {
                 }
             }
             result.onSuccess {
+                Log.i(TAG, "Action succeeded: $action, elapsed=${SystemClock.elapsedRealtime() - startedAt}ms")
                 Toast.makeText(this@TileActionActivity, it, Toast.LENGTH_SHORT).show()
                 finishAndRemoveTask()
             }.onFailure {
+                Log.e(TAG, "Action failed: $action, elapsed=${SystemClock.elapsedRealtime() - startedAt}ms", it)
                 progress.visibility = ProgressBar.GONE
                 message.text = it.message ?: "操作失败"
                 message.setOnClickListener { finishAndRemoveTask() }
@@ -86,8 +92,8 @@ class TileActionActivity : Activity() {
     }
 
     private fun resolveAction(intent: Intent): Action {
-        if (intent.action == Intent.ACTION_SEND) return Action.UPLOAD_SHARED
-        return when (intent.getStringExtra(EXTRA_ACTION)) {
+        return when (intent.action) {
+            Intent.ACTION_SEND -> Action.UPLOAD_SHARED
             ACTION_DOWNLOAD -> Action.DOWNLOAD_CLIPBOARD
             else -> Action.UPLOAD_CLIPBOARD
         }
@@ -137,8 +143,8 @@ class TileActionActivity : Activity() {
     private enum class Action { UPLOAD_CLIPBOARD, DOWNLOAD_CLIPBOARD, UPLOAD_SHARED }
 
     companion object {
-        const val EXTRA_ACTION = "sync_action"
-        const val ACTION_UPLOAD = "upload"
-        const val ACTION_DOWNLOAD = "download"
+        private const val TAG = "TileActionActivity"
+        const val ACTION_UPLOAD = "com.huaxianyan.syncclipboard.action.UPLOAD"
+        const val ACTION_DOWNLOAD = "com.huaxianyan.syncclipboard.action.DOWNLOAD"
     }
 }

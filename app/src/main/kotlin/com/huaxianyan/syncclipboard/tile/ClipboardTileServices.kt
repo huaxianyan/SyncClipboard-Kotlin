@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
+import android.util.Log
 
 abstract class ClipboardTileService : TileService() {
     abstract val action: String
@@ -22,8 +23,9 @@ abstract class ClipboardTileService : TileService() {
     @SuppressLint("StartActivityAndCollapseDeprecated")
     override fun onClick() {
         super.onClick()
+        Log.i(TAG, "Tile clicked: service=${javaClass.simpleName}, action=$action")
         val intent = Intent(this, TileActionActivity::class.java).apply {
-            putExtra(TileActionActivity.EXTRA_ACTION, action)
+            setAction(action)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -38,6 +40,10 @@ abstract class ClipboardTileService : TileService() {
             @Suppress("DEPRECATION")
             startActivityAndCollapse(intent)
         }
+    }
+
+    private companion object {
+        const val TAG = "ClipboardTileService"
     }
 }
 

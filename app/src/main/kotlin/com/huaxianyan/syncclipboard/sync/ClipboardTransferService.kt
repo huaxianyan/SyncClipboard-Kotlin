@@ -59,7 +59,7 @@ class ClipboardTransferService(private val context: Context) {
                 context.getSystemService(ClipboardManager::class.java).setPrimaryClip(
                     ClipData.newPlainText("SyncClipboard", text),
                 )
-                "文本已写入剪贴板"
+                "下载成功：文本已写入剪贴板"
             }
 
             ClipboardType.IMAGE, ClipboardType.FILE -> {
@@ -67,7 +67,7 @@ class ClipboardTransferService(private val context: Context) {
                 val bytes = client.getFile(name)
                 verifyFileHash(payload.hash, name, bytes)
                 saveDownload(name, bytes, guessMimeType(name))
-                "文件已保存到 Download/SyncClipboard/$name"
+                "下载成功：文件已保存到 Download/SyncClipboard/$name"
             }
 
             ClipboardType.GROUP -> {
@@ -75,7 +75,7 @@ class ClipboardTransferService(private val context: Context) {
                 val bytes = client.getFile(name)
                 val folder = "SyncClipboard_${DATE_FORMAT.format(Date())}"
                 val count = extractZip(bytes, folder)
-                "已解压 $count 个文件到 Download/SyncClipboard/$folder"
+                "下载成功：已解压 $count 个文件到 Download/SyncClipboard/$folder"
             }
         }
     }
@@ -87,10 +87,10 @@ class ClipboardTransferService(private val context: Context) {
         }
         client.putClipboard(prepared.payload)
         return when (prepared.payload.type) {
-            ClipboardType.TEXT -> "剪贴板文本上传成功"
-            ClipboardType.IMAGE -> "剪贴板图片上传成功"
-            ClipboardType.FILE -> "剪贴板文件上传成功"
-            ClipboardType.GROUP -> "文件组上传成功"
+            ClipboardType.TEXT -> "上传成功：剪贴板文本已同步"
+            ClipboardType.IMAGE -> "上传成功：剪贴板图片已同步"
+            ClipboardType.FILE -> "上传成功：剪贴板文件已同步"
+            ClipboardType.GROUP -> "上传成功：文件组已同步"
         }
     }
 
