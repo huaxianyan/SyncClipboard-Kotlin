@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- SyncClipboard 常部署在可信局域网的 HTTP/WebDAV 服务上。 -->
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
