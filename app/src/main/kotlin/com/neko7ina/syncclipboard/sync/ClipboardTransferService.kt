@@ -28,8 +28,9 @@ class ClipboardTransferService(private val context: Context) {
         return uploadPrepared(readClipItem(clip.getItemAt(0), clip.description.getMimeType(0)))
     }
 
-    fun uploadText(text: String): String? {
+    fun uploadTextIfChanged(text: String, previousHash: String?): String? {
         val prepared = PayloadFactory.text(text)
+        if (prepared.payload.hash.equals(previousHash, ignoreCase = true)) return null
         uploadPrepared(prepared)
         return prepared.payload.hash
     }

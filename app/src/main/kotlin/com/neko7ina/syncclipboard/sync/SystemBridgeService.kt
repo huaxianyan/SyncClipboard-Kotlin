@@ -74,11 +74,13 @@ class SystemBridgeService : Service() {
             if (sensitive && settings.ignoreSensitiveContent) return
             scope.launch {
                 transferMutex.withLock {
-                    runCatching { ClipboardTransferService(this@SystemBridgeService).uploadText(text) }
-                        .onSuccess { hash ->
-                            if (hash != null) repository.saveLastAutomaticRemoteHash(hash)
-                        }
-                        .onFailure { Log.w(TAG, "Automatic text upload failed", it) }
+                    val previousHash = repository.loadLastAutomaticRemoteHash()
+                    runCatching {
+                        ClipboardTransferService(this@SystemBridgeService)
+                            .uploadTextIfChanged(text, previousHash)
+                    }.onSuccess { hash ->
+                        if (hash != null) repository.saveLastAutomaticRemoteHash(hash)
+                    }.onFailure { Log.w(TAG, "Automatic text upload failed", it) }
                 }
             }
         }
