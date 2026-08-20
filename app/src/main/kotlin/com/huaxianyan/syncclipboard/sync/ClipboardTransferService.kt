@@ -28,6 +28,12 @@ class ClipboardTransferService(private val context: Context) {
         return uploadPrepared(readClipItem(clip.getItemAt(0), clip.description.getMimeType(0)))
     }
 
+    fun uploadText(text: String): String? {
+        val prepared = PayloadFactory.text(text)
+        uploadPrepared(prepared)
+        return prepared.payload.hash
+    }
+
     fun uploadShared(intent: Intent): String {
         val type = intent.type
         val stream = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -47,40 +53,62 @@ class ClipboardTransferService(private val context: Context) {
 
     fun downloadClipboard(): String {
         val client = client()
-        val payload = client.getClipboard()
-        val result = when (payload.type) {
-            ClipboardType.TEXT -> {
-                val text = if (payload.hasData) {
-                    val name = payload.dataName ?: throw SyncException("文本数据缺少文件名")
-                    client.getFile(name).toString(Charsets.UTF_8)
-                } else {
-                    payload.text
-                }
-                verifyTextHash(payload.hash, text)
-                context.getSystemService(ClipboardManager::class.java).setPrimaryClip(
-                    ClipData.newPlainText("SyncClipboard", text),
-                )
-                "下载成功：文本已写入剪贴板"
-            }
-
-            ClipboardType.IMAGE, ClipboardType.FILE -> {
-                val name = payload.dataName ?: throw SyncException("文件名为空")
-                val bytes = client.getFile(name)
-                verifyFileHash(payload.hash, name, bytes)
-                saveDownload(name, bytes, guessMimeType(name))
-                "下载成功：文件已保存到 Download/SyncClipboard/$name"
-            }
-
-            ClipboardType.GROUP -> {
-                val name = payload.dataName ?: throw SyncException("文件组缺少文件名")
-                val bytes = client.getFile(name)
-                val folder = "SyncClipboard_${DATE_FORMAT.format(Date())}"
-                val count = extractZip(bytes, folder)
-                "下载成功：已解压 $count 个文件到 Download/SyncClipboard/$folder"
-            }
+        val result = applyDownloadedPayload(client, client.getClipboard()) { text ->
+            context.getSystemService(ClipboardManager::class.java).setPrimaryClip(
+                ClipData.newPlainText("SyncClipboard", text),
+            )
         }
         SettingsRepository(context).recordSuccessfulSync(SyncDirection.DOWNLOAD)
         return result
+    }
+
+    fun downloadTextIfChanged(
+        previousHash: String?,
+        onText: (text: String, sourceHash: String) -> Unit,
+    ): String? {
+        val client = client()
+        val payload = client.getClipboard()
+        val sourceHash = payload.hash ?: PayloadFactory.sha256(payload.toJson().toByteArray())
+        if (sourceHash.equals(previousHash, ignoreCase = true)) return null
+        if (payload.type != ClipboardType.TEXT) return sourceHash
+
+        applyDownloadedPayload(client, payload) { text -> onText(text, sourceHash) }
+        SettingsRepository(context).recordSuccessfulSync(SyncDirection.DOWNLOAD)
+        return sourceHash
+    }
+
+    private fun applyDownloadedPayload(
+        client: SyncClipboardClient,
+        payload: ClipboardPayload,
+        onText: (String) -> Unit,
+    ): String = when (payload.type) {
+        ClipboardType.TEXT -> {
+            val text = if (payload.hasData) {
+                val name = payload.dataName ?: throw SyncException("文本数据缺少文件名")
+                client.getFile(name).toString(Charsets.UTF_8)
+            } else {
+                payload.text
+            }
+            verifyTextHash(payload.hash, text)
+            onText(text)
+            "下载成功：文本已写入剪贴板"
+        }
+
+        ClipboardType.IMAGE, ClipboardType.FILE -> {
+            val name = payload.dataName ?: throw SyncException("文件名为空")
+            val bytes = client.getFile(name)
+            verifyFileHash(payload.hash, name, bytes)
+            saveDownload(name, bytes, guessMimeType(name))
+            "下载成功：文件已保存到 Download/SyncClipboard/$name"
+        }
+
+        ClipboardType.GROUP -> {
+            val name = payload.dataName ?: throw SyncException("文件组缺少文件名")
+            val bytes = client.getFile(name)
+            val folder = "SyncClipboard_${DATE_FORMAT.format(Date())}"
+            val count = extractZip(bytes, folder)
+            "下载成功：已解压 $count 个文件到 Download/SyncClipboard/$folder"
+        }
     }
 
     private fun uploadPrepared(prepared: PreparedUpload): String {

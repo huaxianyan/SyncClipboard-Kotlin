@@ -15,8 +15,15 @@ data class LastSync(
     val direction: SyncDirection,
 )
 
-class SettingsRepository(context: Context) {
-    private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+class SettingsRepository(
+    context: Context,
+    reloadForAnotherProcess: Boolean = false,
+) {
+    @Suppress("DEPRECATION")
+    private val preferences = context.getSharedPreferences(
+        PREFERENCES_NAME,
+        if (reloadForAnotherProcess) Context.MODE_MULTI_PROCESS else Context.MODE_PRIVATE,
+    )
 
     @Synchronized
     fun loadServerProfiles(): ServerProfiles {
@@ -75,6 +82,40 @@ class SettingsRepository(context: Context) {
             .putLong(KEY_LAST_SYNC_TIME, System.currentTimeMillis())
             .putString(KEY_LAST_SYNC_DIRECTION, direction.name)
             .apply()
+    }
+
+    fun loadAdvancedSyncSettings(): AdvancedSyncSettings = AdvancedSyncSettings(
+        enabled = preferences.getBoolean(KEY_ADVANCED_SYNC_ENABLED, false),
+        uploadText = preferences.getBoolean(KEY_ADVANCED_UPLOAD_TEXT, true),
+        downloadText = preferences.getBoolean(KEY_ADVANCED_DOWNLOAD_TEXT, true),
+        ignoreSensitiveContent = preferences.getBoolean(KEY_IGNORE_SENSITIVE_CONTENT, true),
+        pollingIntervalSeconds = preferences.getInt(KEY_POLLING_INTERVAL_SECONDS, 15)
+            .coerceIn(MIN_POLLING_INTERVAL_SECONDS, MAX_POLLING_INTERVAL_SECONDS),
+    )
+
+    fun loadLastAutomaticRemoteHash(): String? =
+        preferences.getString(KEY_LAST_AUTOMATIC_REMOTE_HASH, null)
+
+    fun saveLastAutomaticRemoteHash(hash: String) {
+        preferences.edit().putString(KEY_LAST_AUTOMATIC_REMOTE_HASH, hash).apply()
+    }
+
+    fun saveAdvancedSyncSettings(settings: AdvancedSyncSettings) {
+        check(
+            preferences.edit()
+                .putBoolean(KEY_ADVANCED_SYNC_ENABLED, settings.enabled)
+                .putBoolean(KEY_ADVANCED_UPLOAD_TEXT, settings.uploadText)
+                .putBoolean(KEY_ADVANCED_DOWNLOAD_TEXT, settings.downloadText)
+                .putBoolean(KEY_IGNORE_SENSITIVE_CONTENT, settings.ignoreSensitiveContent)
+                .putInt(
+                    KEY_POLLING_INTERVAL_SECONDS,
+                    settings.pollingIntervalSeconds.coerceIn(
+                        MIN_POLLING_INTERVAL_SECONDS,
+                        MAX_POLLING_INTERVAL_SECONDS,
+                    ),
+                )
+                .commit(),
+        ) { "保存自动同步设置失败" }
     }
 
     private fun persistMigratedProfiles(profiles: ServerProfiles) {
@@ -157,5 +198,13 @@ class SettingsRepository(context: Context) {
         const val KEY_TRUST_INSECURE = "trust_insecure_certificate"
         const val KEY_LAST_SYNC_TIME = "last_sync_time"
         const val KEY_LAST_SYNC_DIRECTION = "last_sync_direction"
+        const val KEY_ADVANCED_SYNC_ENABLED = "advanced_sync_enabled"
+        const val KEY_ADVANCED_UPLOAD_TEXT = "advanced_upload_text"
+        const val KEY_ADVANCED_DOWNLOAD_TEXT = "advanced_download_text"
+        const val KEY_IGNORE_SENSITIVE_CONTENT = "ignore_sensitive_content"
+        const val KEY_POLLING_INTERVAL_SECONDS = "polling_interval_seconds"
+        const val KEY_LAST_AUTOMATIC_REMOTE_HASH = "last_automatic_remote_hash"
+        const val MIN_POLLING_INTERVAL_SECONDS = 5
+        const val MAX_POLLING_INTERVAL_SECONDS = 300
     }
 }

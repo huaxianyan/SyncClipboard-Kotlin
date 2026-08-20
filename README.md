@@ -22,10 +22,20 @@
 - 可选信任自签名 HTTPS 证书
 - SHA-256 内容校验
 - Android 13+ 可在应用内请求添加磁贴
+- 可选的无界面系统扩展，支持后台检测、上传和接收文本
+- 主体应用统一管理系统扩展状态、自动同步设置和卸载入口
+
+## 系统扩展
+
+`system-extension` 是可选的无界面伴生 APK。它只在 SystemUI 中监听剪贴板变化，并通过 Binder 将文本交给主体应用的独立 `:sync` 进程；服务器配置、网络请求和同步记录仍由主体应用管理。
+
+系统扩展需要支持 libxposed API 101 的 LSPosed 环境，并在 SystemUI 作用域启用。主体应用只有在收到系统扩展的有效连接后，才允许开启高级自动同步。
+
+当前高级模式先支持文本自动上传和定时接收。图片与文件的文件描述符传输、远端推送和自定义保存目录将在后续加入。
 
 ## 规划
 
-应用界面将分为首页、剪贴板历史和设置三个部分。当前版本开放首页与设置，后续将逐步加入剪贴板历史、自动同步、同步内容范围以及图片和文件保存位置等功能。
+当前版本开放首页与设置，后续将逐步加入剪贴板历史、图片与文件自动同步、远端推送以及自定义保存位置等功能。
 
 ## 构建
 
@@ -36,13 +46,16 @@
 
 ```bash
 ./gradlew test
-./gradlew assembleDebug
+./gradlew :app:assembleDebug :system-extension:assembleDebug
 ```
 
-安装：
+构建产物：
 
-```bash
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+```text
+app/build/outputs/apk/debug/app-debug.apk
+system-extension/build/outputs/apk/debug/system-extension-debug.apk
 ```
+
+主体应用可以独立安装。需要高级自动同步时，再安装系统扩展 APK，并在模块管理器中启用。
 
 最低支持 Android 10（API 29）。

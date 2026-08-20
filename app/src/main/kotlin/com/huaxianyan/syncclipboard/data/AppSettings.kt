@@ -28,3 +28,11 @@ data class ServerProfiles(
     val activeServer: ServerConfig?
         get() = servers.firstOrNull { it.id == activeServerId }
 }
+
+data class AdvancedSyncSettings(
+    val enabled: Boolean = false,
+    val uploadText: Boolean = true,
+    val downloadText: Boolean = true,
+    val ignoreSensitiveContent: Boolean = true,
+    val pollingIntervalSeconds: Int = 15,
+)

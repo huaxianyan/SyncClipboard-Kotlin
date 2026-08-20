@@ -2,6 +2,8 @@ package com.huaxianyan.syncclipboard.ui
 
 import android.app.StatusBarManager
 import android.content.ComponentName
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -28,6 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -52,6 +55,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -71,11 +75,16 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.huaxianyan.syncclipboard.R
+import com.huaxianyan.syncclipboard.bridge.BridgeContract
+import com.huaxianyan.syncclipboard.data.AdvancedSyncSettings
 import com.huaxianyan.syncclipboard.data.LastSync
 import com.huaxianyan.syncclipboard.data.ServerConfig
 import com.huaxianyan.syncclipboard.data.ServerProfiles
 import com.huaxianyan.syncclipboard.data.SettingsRepository
 import com.huaxianyan.syncclipboard.data.SyncDirection
+import com.huaxianyan.syncclipboard.extension.SystemExtensionController
+import com.huaxianyan.syncclipboard.extension.SystemExtensionState
+import com.huaxianyan.syncclipboard.extension.SystemExtensionStatus
 import com.huaxianyan.syncclipboard.net.SyncClipboardClient
 import com.huaxianyan.syncclipboard.tile.DownloadClipboardTileService
 import com.huaxianyan.syncclipboard.tile.UploadClipboardTileService
@@ -170,9 +179,19 @@ private enum class AppPage(val title: String) {
 private fun SyncClipboardApp(
     requestTile: (Class<*>, String, Int, (String) -> Unit) -> Unit,
 ) {
+    val context = LocalContext.current
     var currentPage by rememberSaveable { mutableStateOf(AppPage.HOME) }
+    var extensionState by remember { mutableStateOf(SystemExtensionState(SystemExtensionStatus.NOT_INSTALLED)) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val extensionController = remember {
+        SystemExtensionController(context.applicationContext) { extensionState = it }
+    }
+
+    DisposableEffect(extensionController) {
+        extensionController.start()
+        onDispose(extensionController::stop)
+    }
 
     fun showMessage(message: String) {
         scope.launch { snackbar.showSnackbar(message) }
@@ -199,8 +218,14 @@ private fun SyncClipboardApp(
         snackbarHost = { SnackbarHost(snackbar) },
     ) { contentPadding ->
         when (currentPage) {
-            AppPage.HOME -> DashboardPage(contentPadding)
-            AppPage.SETTINGS -> SettingsPage(contentPadding, requestTile, ::showMessage)
+            AppPage.HOME -> DashboardPage(contentPadding, extensionState)
+            AppPage.SETTINGS -> SettingsPage(
+                contentPadding,
+                requestTile,
+                extensionState,
+                extensionController,
+                ::showMessage,
+            )
         }
     }
 }
@@ -213,11 +238,15 @@ private enum class ConnectionStatus {
 }
 
 @Composable
-private fun DashboardPage(contentPadding: PaddingValues) {
+private fun DashboardPage(
+    contentPadding: PaddingValues,
+    extensionState: SystemExtensionState,
+) {
     val context = LocalContext.current
     val repository = remember { SettingsRepository(context.applicationContext) }
     val server = remember { repository.loadServer() }
-    val lastSync = remember { repository.loadLastSync() }
+    val lastSync = remember(extensionState.lastSuccessfulSyncTime) { repository.loadLastSync() }
+    val advancedSync = remember(extensionState.status) { repository.loadAdvancedSyncSettings() }
     var checkRequest by remember { mutableIntStateOf(0) }
     var connectionStatus by remember {
         mutableStateOf(
@@ -245,13 +274,8 @@ private fun DashboardPage(contentPadding: PaddingValues) {
             server = server,
             onRetry = { checkRequest++ },
         )
+        AutomaticSyncCard(advancedSync, extensionState)
         LastSyncCard(lastSync)
-        Text(
-            text = "更多同步状态将在自动同步功能加入后显示在这里。",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 4.dp),
-        )
     }
 }
 
@@ -316,6 +340,67 @@ private fun ConnectionCard(
 }
 
 @Composable
+private fun AutomaticSyncCard(
+    settings: AdvancedSyncSettings,
+    extensionState: SystemExtensionState,
+) {
+    val running = settings.enabled && extensionState.status == SystemExtensionStatus.READY
+    val title = when {
+        running -> "自动同步运行中"
+        !settings.enabled -> "当前使用手动同步"
+        extensionState.status == SystemExtensionStatus.INCOMPATIBLE -> "自动同步需要更新扩展"
+        extensionState.status == SystemExtensionStatus.NOT_INSTALLED -> "自动同步已暂停"
+        else -> "正在恢复自动同步"
+    }
+    val detail = when {
+        running -> buildList {
+            if (settings.uploadText) add("自动上传文本")
+            if (settings.downloadText) add("自动接收文本")
+        }.joinToString(" · ").ifEmpty { "已连接系统扩展" }
+        !settings.enabled -> "磁贴、分享和手动同步可继续使用。"
+        extensionState.status == SystemExtensionStatus.NOT_INSTALLED -> "安装系统扩展后可恢复后台同步。"
+        extensionState.status == SystemExtensionStatus.INCOMPATIBLE -> "请安装与当前应用兼容的系统扩展。"
+        else -> "系统扩展连接后将自动继续。"
+    }
+
+    SectionCard(title = "自动同步") {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(16.dp)
+                    .background(
+                        if (running) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.outline,
+                        CircleShape,
+                    ),
+            )
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    detail,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (running && extensionState.lastClipboardEventTime > 0L) {
+            val eventTime = remember(extensionState.lastClipboardEventTime) {
+                DateFormat.getTimeInstance(DateFormat.SHORT)
+                    .format(Date(extensionState.lastClipboardEventTime))
+            }
+            Text(
+                "最近检测到剪贴板变化：$eventTime",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
 private fun LastSyncCard(lastSync: LastSync?) {
     SectionCard(title = "上次同步") {
         if (lastSync == null) {
@@ -354,6 +439,8 @@ private enum class ServerEditorMode {
 private fun SettingsPage(
     contentPadding: PaddingValues,
     requestTile: (Class<*>, String, Int, (String) -> Unit) -> Unit,
+    extensionState: SystemExtensionState,
+    extensionController: SystemExtensionController,
     showMessage: (String) -> Unit,
 ) {
     val context = LocalContext.current
@@ -371,6 +458,8 @@ private fun SettingsPage(
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
     var saving by rememberSaveable { mutableStateOf(false) }
     var testing by rememberSaveable { mutableStateOf(false) }
+    var advancedSync by remember { mutableStateOf(repository.loadAdvancedSyncSettings()) }
+    var showUninstallConfirmation by rememberSaveable { mutableStateOf(false) }
 
     fun openEditor(mode: ServerEditorMode) {
         val source = profiles.activeServer.takeIf { mode == ServerEditorMode.EDIT }
@@ -393,7 +482,59 @@ private fun SettingsPage(
         trustInsecureCertificate = trustInsecure,
     ).also { it.validate() }
 
+    fun saveAdvancedSync(newSettings: AdvancedSyncSettings) {
+        if (newSettings.enabled && extensionState.status != SystemExtensionStatus.READY) {
+            showMessage("系统扩展连接后才能开启高级自动同步")
+            return
+        }
+        advancedSync = newSettings
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { repository.saveAdvancedSyncSettings(newSettings) }
+            }.onSuccess {
+                extensionController.reloadConfiguration()
+            }.onFailure {
+                advancedSync = repository.loadAdvancedSyncSettings()
+                showMessage(it.message ?: "保存自动同步设置失败")
+            }
+        }
+    }
+
+    if (showUninstallConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showUninstallConfirmation = false },
+            title = { Text("卸载系统扩展？") },
+            text = { Text("卸载后，后台自动同步将停止。磁贴、分享和手动同步继续可用。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showUninstallConfirmation = false
+                        context.startActivity(
+                            Intent(
+                                Intent.ACTION_DELETE,
+                                Uri.parse("package:${BridgeContract.EXTENSION_PACKAGE}"),
+                            ),
+                        )
+                    },
+                ) { Text("继续卸载") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showUninstallConfirmation = false }) { Text("取消") }
+            },
+        )
+    }
+
     PageColumn(contentPadding) {
+        AdvancedSyncSettingsCard(
+            settings = advancedSync,
+            extensionStatus = extensionState.status,
+            onSettingsChange = ::saveAdvancedSync,
+        )
+        SystemExtensionCard(
+            status = extensionState.status,
+            onRefresh = extensionController::refresh,
+            onUninstall = { showUninstallConfirmation = true },
+        )
         ServerProfilesCard(
             profiles = profiles,
             editorOpen = editorMode != null,
@@ -693,6 +834,116 @@ private fun ServerEditorCard(
                 Text(if (saving) "正在保存" else "保存")
             }
         }
+    }
+}
+
+@Composable
+private fun AdvancedSyncSettingsCard(
+    settings: AdvancedSyncSettings,
+    extensionStatus: SystemExtensionStatus,
+    onSettingsChange: (AdvancedSyncSettings) -> Unit,
+) {
+    val extensionReady = extensionStatus == SystemExtensionStatus.READY
+    SectionCard(title = "高级自动同步") {
+        SettingSwitchRow(
+            title = "后台自动同步",
+            detail = if (extensionReady) {
+                "实时检测本地剪贴板，并定期接收远端文本。"
+            } else {
+                "系统扩展连接后可开启。"
+            },
+            checked = settings.enabled,
+            enabled = extensionReady || settings.enabled,
+            onCheckedChange = { onSettingsChange(settings.copy(enabled = it)) },
+        )
+        SettingSwitchRow(
+            title = "自动上传文本",
+            detail = "复制文本后自动同步到当前服务器。",
+            checked = settings.uploadText,
+            enabled = settings.enabled,
+            onCheckedChange = { onSettingsChange(settings.copy(uploadText = it)) },
+        )
+        SettingSwitchRow(
+            title = "自动接收文本",
+            detail = "每 ${settings.pollingIntervalSeconds} 秒检查一次远端内容。",
+            checked = settings.downloadText,
+            enabled = settings.enabled,
+            onCheckedChange = { onSettingsChange(settings.copy(downloadText = it)) },
+        )
+        SettingSwitchRow(
+            title = "忽略敏感内容",
+            detail = "密码管理器等应用标记的敏感内容不参与自动上传。",
+            checked = settings.ignoreSensitiveContent,
+            enabled = settings.enabled,
+            onCheckedChange = { onSettingsChange(settings.copy(ignoreSensitiveContent = it)) },
+        )
+    }
+}
+
+@Composable
+private fun SystemExtensionCard(
+    status: SystemExtensionStatus,
+    onRefresh: () -> Unit,
+    onUninstall: () -> Unit,
+) {
+    val installed = status != SystemExtensionStatus.NOT_INSTALLED
+    val title = when (status) {
+        SystemExtensionStatus.NOT_INSTALLED -> "尚未安装"
+        SystemExtensionStatus.INSTALLED_NOT_CONNECTED -> "已安装，等待启用"
+        SystemExtensionStatus.INCOMPATIBLE -> "需要更新"
+        SystemExtensionStatus.READY -> "运行正常"
+    }
+    val detail = when (status) {
+        SystemExtensionStatus.NOT_INSTALLED -> "安装与主体应用匹配的系统扩展后，可使用后台自动同步。"
+        SystemExtensionStatus.INSTALLED_NOT_CONNECTED -> "请在模块管理器中启用系统扩展并重新启动设备。"
+        SystemExtensionStatus.INCOMPATIBLE -> "当前扩展版本与主体应用不兼容。"
+        SystemExtensionStatus.READY -> "后台剪贴板能力已经就绪。"
+    }
+
+    SectionCard(title = "系统扩展") {
+        Text(title, style = MaterialTheme.typography.titleMedium)
+        Text(
+            detail,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) {
+            Text("重新检查")
+        }
+        if (installed) {
+            TextButton(onClick = onUninstall, modifier = Modifier.fillMaxWidth()) {
+                Text("卸载系统扩展", color = MaterialTheme.colorScheme.error)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingSwitchRow(
+    title: String,
+    detail: String,
+    checked: Boolean,
+    enabled: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(
+            checked = checked,
+            enabled = enabled,
+            onCheckedChange = onCheckedChange,
+        )
     }
 }
 
