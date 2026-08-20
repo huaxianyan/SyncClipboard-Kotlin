@@ -34,5 +34,4 @@ data class AdvancedSyncSettings(
     val uploadText: Boolean = true,
     val downloadText: Boolean = true,
     val ignoreSensitiveContent: Boolean = true,
-    val pollingIntervalSeconds: Int = 15,
 )

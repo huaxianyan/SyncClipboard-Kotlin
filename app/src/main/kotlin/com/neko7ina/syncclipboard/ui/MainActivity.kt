@@ -862,14 +862,14 @@ private fun AdvancedSyncSettingsCard(
         )
         SettingSwitchRow(
             title = "自动上传文本",
-            detail = "复制文本后自动同步到当前服务器。",
+            detail = "解锁期间自动上传，断网后恢复重试。",
             checked = settings.uploadText,
             enabled = settings.enabled,
             onCheckedChange = { onSettingsChange(settings.copy(uploadText = it)) },
         )
         SettingSwitchRow(
             title = "自动接收文本",
-            detail = "每 ${settings.pollingIntervalSeconds} 秒检查一次远端内容。",
+            detail = "解锁期间实时接收，锁屏后暂停。",
             checked = settings.downloadText,
             enabled = settings.enabled,
             onCheckedChange = { onSettingsChange(settings.copy(downloadText = it)) },

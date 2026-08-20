@@ -66,14 +66,18 @@ class ClipboardTransferService(private val context: Context) {
     fun downloadTextIfChanged(
         previousHash: String?,
         onText: (text: String, sourceHash: String) -> Unit,
+    ): String? = applyRemoteTextIfChanged(client().getClipboard(), previousHash, onText)
+
+    fun applyRemoteTextIfChanged(
+        payload: ClipboardPayload,
+        previousHash: String?,
+        onText: (text: String, sourceHash: String) -> Unit,
     ): String? {
-        val client = client()
-        val payload = client.getClipboard()
         val sourceHash = payload.hash ?: PayloadFactory.sha256(payload.toJson().toByteArray())
         if (sourceHash.equals(previousHash, ignoreCase = true)) return null
         if (payload.type != ClipboardType.TEXT) return sourceHash
 
-        applyDownloadedPayload(client, payload) { text -> onText(text, sourceHash) }
+        applyDownloadedPayload(client(), payload) { text -> onText(text, sourceHash) }
         SettingsRepository(context).recordSuccessfulSync(SyncDirection.DOWNLOAD)
         return sourceHash
     }

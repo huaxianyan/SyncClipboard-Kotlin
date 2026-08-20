@@ -1,28 +1,43 @@
 package com.neko7ina.syncclipboard.sync
 
+import android.app.KeyguardManager
 import android.app.Service
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.os.Binder
 import android.os.IBinder
+import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import com.neko7ina.syncclipboard.bridge.BridgeContract
 import com.neko7ina.syncclipboard.bridge.ISyncBridgeService
 import com.neko7ina.syncclipboard.bridge.ISystemClipboardBridge
 import com.neko7ina.syncclipboard.data.SettingsRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 class SystemBridgeService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val transferMutex = Mutex()
+    private val remoteSyncLifecycleMutex = Mutex()
 
     @Volatile
     private var systemBridge: ISystemClipboardBridge? = null
@@ -36,8 +51,37 @@ class SystemBridgeService : Service() {
     @Volatile
     private lateinit var repository: SettingsRepository
 
-    private var pollingJob: Job? = null
+    @Volatile
+    private var deviceUnlocked = false
+
+    @Volatile
+    private var networkAvailable = false
+
+    @Volatile
+    private var pendingClipboardText: String? = null
+
+    private var pendingUploadJob: Job? = null
+    private var remoteSyncJob: Job? = null
     private val bridgeDeathRecipient = IBinder.DeathRecipient(::disconnectSystemBridge)
+    private val connectivityManager by lazy { getSystemService(ConnectivityManager::class.java) }
+
+    private val screenStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            deviceUnlocked = when (intent.action) {
+                Intent.ACTION_SCREEN_OFF -> false
+                else -> isDeviceUnlocked()
+            }
+            requestPendingTextUpload()
+            requestRemoteSyncRestart()
+        }
+    }
+
+    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) = refreshNetworkAvailability()
+        override fun onLost(network: Network) = refreshNetworkAvailability()
+        override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) =
+            refreshNetworkAvailability()
+    }
 
     private val binder = object : ISyncBridgeService.Stub() {
         override fun registerSystemBridge(
@@ -50,14 +94,14 @@ class SystemBridgeService : Service() {
                 return BridgeContract.INCOMPATIBLE
             }
             incompatibleBridgeDetected = false
-            disconnectSystemBridge()
+            disconnectSystemBridge(restartRemoteSync = false)
             systemBridge = bridge
             runCatching { bridge.asBinder().linkToDeath(bridgeDeathRecipient, 0) }
                 .onFailure {
                     systemBridge = null
                     return BridgeContract.INCOMPATIBLE
                 }
-            ensurePolling()
+            requestRemoteSyncRestart()
             return BridgeContract.REGISTERED
         }
 
@@ -72,17 +116,8 @@ class SystemBridgeService : Service() {
             val settings = repository.loadAdvancedSyncSettings()
             if (!settings.enabled || !settings.uploadText) return
             if (sensitive && settings.ignoreSensitiveContent) return
-            scope.launch {
-                transferMutex.withLock {
-                    val previousHash = repository.loadLastAutomaticRemoteHash()
-                    runCatching {
-                        ClipboardTransferService(this@SystemBridgeService)
-                            .uploadTextIfChanged(text, previousHash)
-                    }.onSuccess { hash ->
-                        if (hash != null) repository.saveLastAutomaticRemoteHash(hash)
-                    }.onFailure { Log.w(TAG, "Automatic text upload failed", it) }
-                }
-            }
+            pendingClipboardText = text
+            requestPendingTextUpload()
         }
 
         override fun getConnectionState(): Int {
@@ -110,7 +145,9 @@ class SystemBridgeService : Service() {
                 this@SystemBridgeService,
                 reloadForAnotherProcess = true,
             )
-            ensurePolling()
+            if (!repository.loadAdvancedSyncSettings().uploadText) pendingClipboardText = null
+            requestPendingTextUpload()
+            requestRemoteSyncRestart()
         }
 
         override fun updateExtensionAvailability(installed: Boolean) {
@@ -122,31 +159,142 @@ class SystemBridgeService : Service() {
     override fun onCreate() {
         super.onCreate()
         repository = SettingsRepository(this, reloadForAnotherProcess = true)
+        deviceUnlocked = isDeviceUnlocked()
+        networkAvailable = isNetworkAvailable()
+        registerReceiver(
+            screenStateReceiver,
+            IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_SCREEN_ON)
+                addAction(Intent.ACTION_USER_PRESENT)
+            },
+            Context.RECEIVER_NOT_EXPORTED,
+        )
+        connectivityManager.registerDefaultNetworkCallback(networkCallback)
     }
 
     override fun onBind(intent: Intent?): IBinder = binder
 
     override fun onDestroy() {
-        disconnectSystemBridge()
+        runCatching { unregisterReceiver(screenStateReceiver) }
+        runCatching { connectivityManager.unregisterNetworkCallback(networkCallback) }
+        disconnectSystemBridge(restartRemoteSync = false)
         scope.cancel()
         super.onDestroy()
     }
 
-    private fun ensurePolling() {
-        if (pollingJob?.isActive == true) return
-        pollingJob = scope.launch {
-            while (isActive) {
-                val settings = repository.loadAdvancedSyncSettings()
-                if (settings.enabled && settings.downloadText && systemBridge != null) {
-                    transferMutex.withLock { pollRemoteText() }
+    @Synchronized
+    private fun requestPendingTextUpload() {
+        if (!deviceUnlocked || !networkAvailable) {
+            pendingUploadJob?.cancel()
+            pendingUploadJob = null
+            return
+        }
+        if (pendingUploadJob?.isActive == true || pendingClipboardText == null) return
+        pendingUploadJob = scope.launch {
+            var failureIndex = 0
+            while (currentCoroutineContext().isActive && deviceUnlocked && networkAvailable) {
+                val succeeded = transferMutex.withLock { uploadPendingTextOnce() }
+                if (succeeded && pendingClipboardText == null) return@launch
+                if (succeeded) {
+                    failureIndex = 0
+                    continue
                 }
-                delay(settings.pollingIntervalSeconds * 1_000L)
+                delay(RECONNECT_DELAYS_MILLIS[failureIndex])
+                failureIndex = (failureIndex + 1).coerceAtMost(RECONNECT_DELAYS_MILLIS.lastIndex)
+            }
+        }
+    }
+
+    private fun uploadPendingTextOnce(): Boolean {
+        val text = pendingClipboardText ?: return true
+        val settings = repository.loadAdvancedSyncSettings()
+        if (!settings.enabled || !settings.uploadText) {
+            pendingClipboardText = null
+            return true
+        }
+        val previousHash = repository.loadLastAutomaticRemoteHash()
+        return runCatching {
+            ClipboardTransferService(this).uploadTextIfChanged(text, previousHash)
+        }.fold(
+            onSuccess = { hash ->
+                if (hash != null) repository.saveLastAutomaticRemoteHash(hash)
+                if (pendingClipboardText == text) pendingClipboardText = null
+                true
+            },
+            onFailure = {
+                Log.w(TAG, "Automatic text upload failed", it)
+                false
+            },
+        )
+    }
+
+    private fun requestRemoteSyncRestart() {
+        scope.launch {
+            remoteSyncLifecycleMutex.withLock {
+                remoteSyncJob?.cancelAndJoin()
+                remoteSyncJob = null
+                if (shouldRunRemoteSync()) {
+                    remoteSyncJob = scope.launch { runRemoteSyncLoop() }
+                }
+            }
+        }
+    }
+
+    private suspend fun runRemoteSyncLoop() {
+        var failureIndex = 0
+        var lastFallbackPollAt = 0L
+        while (currentCoroutineContext().isActive && shouldRunRemoteSync()) {
+            val server = repository.loadServer() ?: return
+            val client = SignalRSyncClient(server, ::handleRemoteProfile)
+            try {
+                client.start()
+                if (!shouldRunRemoteSync()) return
+                failureIndex = 0
+                Log.i(TAG, "SignalR connected")
+                transferMutex.withLock { pollRemoteText() }
+                lastFallbackPollAt = SystemClock.elapsedRealtime()
+                val closeError = client.awaitClosed()
+                throw closeError ?: IllegalStateException("SignalR connection closed")
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Log.w(TAG, "SignalR unavailable", error)
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastFallbackPollAt >= FALLBACK_POLL_INTERVAL_MILLIS) {
+                    transferMutex.withLock { pollRemoteText() }
+                    lastFallbackPollAt = now
+                }
+            } finally {
+                withContext(NonCancellable + Dispatchers.IO) { client.stop() }
+            }
+            delay(RECONNECT_DELAYS_MILLIS[failureIndex])
+            failureIndex = (failureIndex + 1).coerceAtMost(RECONNECT_DELAYS_MILLIS.lastIndex)
+        }
+    }
+
+    private fun handleRemoteProfile(payload: ClipboardPayload) {
+        scope.launch {
+            if (!shouldRunRemoteSync()) return@launch
+            transferMutex.withLock {
+                val callback = systemBridge ?: return@withLock
+                val previousHash = repository.loadLastAutomaticRemoteHash()
+                runCatching {
+                    ClipboardTransferService(this@SystemBridgeService)
+                        .applyRemoteTextIfChanged(payload, previousHash) { text, sourceHash ->
+                            callback.setClipboardText(text, sourceHash)
+                        }
+                }.onSuccess { newHash ->
+                    if (newHash != null) repository.saveLastAutomaticRemoteHash(newHash)
+                }.onFailure { Log.w(TAG, "Automatic pushed text download failed", it) }
             }
         }
     }
 
     private fun pollRemoteText() {
         val callback = systemBridge ?: return
+        val settings = repository.loadAdvancedSyncSettings()
+        if (!settings.enabled || !settings.downloadText) return
         val previousHash = repository.loadLastAutomaticRemoteHash()
         runCatching {
             ClipboardTransferService(this).downloadTextIfChanged(previousHash) { text, sourceHash ->
@@ -160,10 +308,40 @@ class SystemBridgeService : Service() {
         }
     }
 
-    private fun disconnectSystemBridge() {
+    private fun shouldRunRemoteSync(): Boolean {
+        val settings = repository.loadAdvancedSyncSettings()
+        return settings.enabled &&
+            settings.downloadText &&
+            deviceUnlocked &&
+            networkAvailable &&
+            systemBridge?.asBinder()?.isBinderAlive == true
+    }
+
+    private fun refreshNetworkAvailability() {
+        val available = isNetworkAvailable()
+        if (networkAvailable == available) return
+        networkAvailable = available
+        requestPendingTextUpload()
+        requestRemoteSyncRestart()
+    }
+
+    private fun isNetworkAvailable(): Boolean {
+        val network = connectivityManager.activeNetwork ?: return false
+        val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    private fun isDeviceUnlocked(): Boolean {
+        val interactive = getSystemService(PowerManager::class.java).isInteractive
+        val locked = getSystemService(KeyguardManager::class.java).isDeviceLocked
+        return interactive && !locked
+    }
+
+    private fun disconnectSystemBridge(restartRemoteSync: Boolean = true) {
         val current = systemBridge
         systemBridge = null
         current?.asBinder()?.unlinkToDeath(bridgeDeathRecipient, 0)
+        if (restartRemoteSync) requestRemoteSyncRestart()
     }
 
     private fun enforceSystemUiCaller() {
@@ -183,5 +361,14 @@ class SystemBridgeService : Service() {
 
     private companion object {
         const val TAG = "SystemBridgeService"
+        const val FALLBACK_POLL_INTERVAL_MILLIS = 5 * 60 * 1_000L
+        val RECONNECT_DELAYS_MILLIS = longArrayOf(
+            5_000L,
+            15_000L,
+            30_000L,
+            60_000L,
+            120_000L,
+            300_000L,
+        )
     }
 }

@@ -48,6 +48,8 @@ dependencies {
     implementation(project(":bridge-api"))
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.microsoft.signalr:signalr:9.0.19")
+    implementation("org.slf4j:slf4j-nop:1.7.36")
 
     implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.compose.material3:material3:1.4.0")

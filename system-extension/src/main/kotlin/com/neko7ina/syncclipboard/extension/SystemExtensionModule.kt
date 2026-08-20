@@ -68,20 +68,14 @@ private object SystemClipboardConnector {
 
         override fun onServiceDisconnected(name: ComponentName) {
             host = null
-            bound = false
-            scheduleBind()
         }
 
         override fun onBindingDied(name: ComponentName) {
-            host = null
-            bound = false
-            scheduleBind()
+            resetBinding()
         }
 
         override fun onNullBinding(name: ComponentName) {
-            host = null
-            bound = false
-            scheduleBind()
+            resetBinding()
         }
     }
 
@@ -106,11 +100,7 @@ private object SystemClipboardConnector {
             false
         }
         runCatching { host?.onClipboardText(text, sensitive) }
-            .onFailure {
-                host = null
-                bound = false
-                scheduleBind()
-            }
+            .onFailure { resetBinding() }
     }
 
     fun start(application: Application) {
@@ -119,6 +109,15 @@ private object SystemClipboardConnector {
         application.getSystemService(ClipboardManager::class.java)
             .addPrimaryClipChangedListener(clipListener)
         bindHost()
+    }
+
+    private fun resetBinding() {
+        host = null
+        if (bound) {
+            context?.let { runCatching { it.unbindService(serviceConnection) } }
+        }
+        bound = false
+        scheduleBind()
     }
 
     private fun scheduleBind() {

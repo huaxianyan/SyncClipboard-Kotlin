@@ -89,8 +89,6 @@ class SettingsRepository(
         uploadText = preferences.getBoolean(KEY_ADVANCED_UPLOAD_TEXT, true),
         downloadText = preferences.getBoolean(KEY_ADVANCED_DOWNLOAD_TEXT, true),
         ignoreSensitiveContent = preferences.getBoolean(KEY_IGNORE_SENSITIVE_CONTENT, true),
-        pollingIntervalSeconds = preferences.getInt(KEY_POLLING_INTERVAL_SECONDS, 15)
-            .coerceIn(MIN_POLLING_INTERVAL_SECONDS, MAX_POLLING_INTERVAL_SECONDS),
     )
 
     fun loadLastAutomaticRemoteHash(): String? =
@@ -107,13 +105,7 @@ class SettingsRepository(
                 .putBoolean(KEY_ADVANCED_UPLOAD_TEXT, settings.uploadText)
                 .putBoolean(KEY_ADVANCED_DOWNLOAD_TEXT, settings.downloadText)
                 .putBoolean(KEY_IGNORE_SENSITIVE_CONTENT, settings.ignoreSensitiveContent)
-                .putInt(
-                    KEY_POLLING_INTERVAL_SECONDS,
-                    settings.pollingIntervalSeconds.coerceIn(
-                        MIN_POLLING_INTERVAL_SECONDS,
-                        MAX_POLLING_INTERVAL_SECONDS,
-                    ),
-                )
+                .remove(KEY_POLLING_INTERVAL_SECONDS)
                 .commit(),
         ) { "保存自动同步设置失败" }
     }
@@ -204,7 +196,5 @@ class SettingsRepository(
         const val KEY_IGNORE_SENSITIVE_CONTENT = "ignore_sensitive_content"
         const val KEY_POLLING_INTERVAL_SECONDS = "polling_interval_seconds"
         const val KEY_LAST_AUTOMATIC_REMOTE_HASH = "last_automatic_remote_hash"
-        const val MIN_POLLING_INTERVAL_SECONDS = 5
-        const val MAX_POLLING_INTERVAL_SECONDS = 300
     }
 }

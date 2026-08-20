@@ -121,20 +121,24 @@ private object ClientCache {
             .readTimeout(5, TimeUnit.MINUTES)
             .retryOnConnectionFailure(true)
 
-        if (config.trustInsecureCertificate) {
-            val trustManager = object : X509TrustManager {
-                override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit
-                override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit
-                override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
-            }
-            val sslContext = SSLContext.getInstance("TLS").apply {
-                init(null, arrayOf<TrustManager>(trustManager), SecureRandom())
-            }
-            builder.sslSocketFactory(sslContext.socketFactory, trustManager)
-                .hostnameVerifier { _, _ -> true }
-        }
-
+        HttpClientSecurity.configure(builder, config)
         return builder.build()
+    }
+}
+
+internal object HttpClientSecurity {
+    fun configure(builder: OkHttpClient.Builder, config: ServerConfig) {
+        if (!config.trustInsecureCertificate) return
+        val trustManager = object : X509TrustManager {
+            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit
+            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit
+            override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+        }
+        val sslContext = SSLContext.getInstance("TLS").apply {
+            init(null, arrayOf<TrustManager>(trustManager), SecureRandom())
+        }
+        builder.sslSocketFactory(sslContext.socketFactory, trustManager)
+            .hostnameVerifier { _, _ -> true }
     }
 }
 
