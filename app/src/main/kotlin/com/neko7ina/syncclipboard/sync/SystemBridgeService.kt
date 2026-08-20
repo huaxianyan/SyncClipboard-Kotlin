@@ -34,7 +34,7 @@ class SystemBridgeService : Service() {
     private var incompatibleBridgeDetected = false
 
     @Volatile
-    private var repository = SettingsRepository(this, reloadForAnotherProcess = true)
+    private lateinit var repository: SettingsRepository
 
     private var pollingJob: Job? = null
     private val bridgeDeathRecipient = IBinder.DeathRecipient(::disconnectSystemBridge)
@@ -94,7 +94,7 @@ class SystemBridgeService : Service() {
 
         override fun getLastClipboardEventTime(): Long {
             enforceHostCaller()
-            return lastClipboardEventTime
+            return this@SystemBridgeService.lastClipboardEventTime
         }
 
         override fun getLastSuccessfulSyncTime(): Long {
@@ -115,6 +115,11 @@ class SystemBridgeService : Service() {
             enforceHostCaller()
             if (!installed) disconnectSystemBridge()
         }
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        repository = SettingsRepository(this, reloadForAnotherProcess = true)
     }
 
     override fun onBind(intent: Intent?): IBinder = binder
