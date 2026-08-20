@@ -46,6 +46,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -77,6 +78,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -875,8 +877,13 @@ private fun ServerEditorCard(
                 PasswordVisualTransformation()
             },
             trailingIcon = {
-                FilledTonalButton(onClick = onPasswordVisibilityChange) {
-                    Text(if (passwordVisible) "隐藏" else "显示")
+                IconButton(onClick = onPasswordVisibilityChange) {
+                    Icon(
+                        painter = painterResource(
+                            if (passwordVisible) R.drawable.ic_visibility_off else R.drawable.ic_visibility,
+                        ),
+                        contentDescription = if (passwordVisible) "隐藏密码" else "显示密码",
+                    )
                 }
             },
             keyboardOptions = KeyboardOptions(
