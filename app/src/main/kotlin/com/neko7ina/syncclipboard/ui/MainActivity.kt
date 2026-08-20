@@ -33,7 +33,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonColors
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -338,9 +339,13 @@ private fun ConnectionCard(
                 )
             }
         }
-        if (server != null && status != ConnectionStatus.CHECKING) {
-            OutlinedButton(onClick = onRetry, modifier = Modifier.fillMaxWidth()) {
-                Text("重新检查")
+        if (server != null) {
+            OutlinedButton(
+                onClick = onRetry,
+                enabled = status != ConnectionStatus.CHECKING,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(if (status == ConnectionStatus.CHECKING) "正在检查" else "重新检查")
             }
         }
     }
@@ -576,10 +581,14 @@ private fun SettingsPage(
                             ),
                         )
                     },
+                    colors = neutralTextButtonColors(),
                 ) { Text("继续卸载") }
             },
             dismissButton = {
-                TextButton(onClick = { showUninstallConfirmation = false }) { Text("取消") }
+                TextButton(
+                    onClick = { showUninstallConfirmation = false },
+                    colors = neutralTextButtonColors(),
+                ) { Text("取消") }
             },
         )
     }
@@ -747,6 +756,7 @@ private fun ServerProfilesCard(
                 OutlinedButton(
                     onClick = { menuExpanded = true },
                     enabled = profiles.servers.isNotEmpty() && !editorOpen,
+                    colors = neutralOutlinedButtonColors(),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
@@ -771,10 +781,18 @@ private fun ServerProfilesCard(
                     }
                 }
             }
-            FilledTonalButton(onClick = onAdd, enabled = !editorOpen) {
+            FilledTonalButton(
+                onClick = onAdd,
+                enabled = !editorOpen,
+                colors = neutralFilledButtonColors(),
+            ) {
                 Text("新增")
             }
-            TextButton(onClick = onEdit, enabled = activeServer != null && !editorOpen) {
+            TextButton(
+                onClick = onEdit,
+                enabled = activeServer != null && !editorOpen,
+                colors = neutralTextButtonColors(),
+            ) {
                 Text("编辑")
             }
         }
@@ -844,7 +862,10 @@ private fun ServerEditorCard(
                 PasswordVisualTransformation()
             },
             trailingIcon = {
-                TextButton(onClick = onPasswordVisibilityChange) {
+                TextButton(
+                    onClick = onPasswordVisibilityChange,
+                    colors = neutralTextButtonColors(),
+                ) {
                     Text(if (passwordVisible) "隐藏" else "显示")
                 }
             },
@@ -872,6 +893,7 @@ private fun ServerEditorCard(
         FilledTonalButton(
             onClick = onTest,
             enabled = !testing && !saving,
+            colors = neutralFilledButtonColors(),
             modifier = Modifier.fillMaxWidth(),
         ) {
             if (testing) {
@@ -887,13 +909,15 @@ private fun ServerEditorCard(
             OutlinedButton(
                 onClick = onCancel,
                 enabled = !saving && !testing,
+                colors = neutralOutlinedButtonColors(),
                 modifier = Modifier.weight(1f),
             ) {
                 Text("取消")
             }
-            Button(
+            FilledTonalButton(
                 onClick = onSave,
                 enabled = !saving && !testing,
+                colors = neutralFilledButtonColors(),
                 modifier = Modifier.weight(1f),
             ) {
                 if (saving) {
@@ -1001,7 +1025,10 @@ private fun SaveDirectoryRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        OutlinedButton(onClick = onChoose) {
+        OutlinedButton(
+            onClick = onChoose,
+            colors = neutralOutlinedButtonColors(),
+        ) {
             Text(if (selected) "更改" else "选择")
         }
     }
@@ -1034,7 +1061,11 @@ private fun SystemExtensionCard(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        OutlinedButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(
+            onClick = onRefresh,
+            colors = neutralOutlinedButtonColors(),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             Text("重新检查")
         }
         if (installed) {
@@ -1080,14 +1111,38 @@ private fun TileCard(
     onAddDownload: () -> Unit,
 ) {
     SectionCard(title = "快速设置磁贴") {
-        FilledTonalButton(onClick = onAddUpload, modifier = Modifier.fillMaxWidth()) {
+        FilledTonalButton(
+            onClick = onAddUpload,
+            colors = neutralFilledButtonColors(),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             Text("添加上传磁贴")
         }
-        FilledTonalButton(onClick = onAddDownload, modifier = Modifier.fillMaxWidth()) {
+        FilledTonalButton(
+            onClick = onAddDownload,
+            colors = neutralFilledButtonColors(),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             Text("添加下载磁贴")
         }
     }
 }
+
+@Composable
+private fun neutralFilledButtonColors(): ButtonColors = ButtonDefaults.filledTonalButtonColors(
+    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+)
+
+@Composable
+private fun neutralOutlinedButtonColors(): ButtonColors = ButtonDefaults.outlinedButtonColors(
+    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+)
+
+@Composable
+private fun neutralTextButtonColors(): ButtonColors = ButtonDefaults.textButtonColors(
+    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+)
 
 @Composable
 private fun SectionCard(
