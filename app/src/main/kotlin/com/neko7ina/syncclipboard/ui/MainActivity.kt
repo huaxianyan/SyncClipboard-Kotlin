@@ -11,6 +11,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -33,8 +38,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ButtonColors
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -53,6 +57,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
@@ -466,6 +471,7 @@ private fun SettingsPage(
 
     var profiles by remember { mutableStateOf(repository.loadServerProfiles()) }
     var editorMode by rememberSaveable { mutableStateOf<ServerEditorMode?>(null) }
+    var displayedEditorMode by rememberSaveable { mutableStateOf<ServerEditorMode?>(null) }
     var serverId by rememberSaveable { mutableStateOf("") }
     var serverName by rememberSaveable { mutableStateOf("") }
     var serverUrl by rememberSaveable { mutableStateOf("") }
@@ -487,6 +493,7 @@ private fun SettingsPage(
         password = source?.password.orEmpty()
         trustInsecure = source?.trustInsecureCertificate ?: false
         passwordVisible = false
+        displayedEditorMode = mode
         editorMode = mode
     }
 
@@ -581,14 +588,10 @@ private fun SettingsPage(
                             ),
                         )
                     },
-                    colors = neutralTextButtonColors(),
                 ) { Text("继续卸载") }
             },
             dismissButton = {
-                TextButton(
-                    onClick = { showUninstallConfirmation = false },
-                    colors = neutralTextButtonColors(),
-                ) { Text("取消") }
+                TextButton(onClick = { showUninstallConfirmation = false }) { Text("取消") }
             },
         )
     }
@@ -627,61 +630,75 @@ private fun SettingsPage(
             onAdd = { openEditor(ServerEditorMode.ADD) },
             onEdit = { openEditor(ServerEditorMode.EDIT) },
         )
-        editorMode?.let { mode ->
-            ServerEditorCard(
-                title = if (mode == ServerEditorMode.ADD) "新增服务器" else "编辑服务器",
-                serverName = serverName,
-                onServerNameChange = { serverName = it },
-                serverUrl = serverUrl,
-                onServerUrlChange = { serverUrl = it },
-                username = username,
-                onUsernameChange = { username = it },
-                password = password,
-                onPasswordChange = { password = it },
-                passwordVisible = passwordVisible,
-                onPasswordVisibilityChange = { passwordVisible = !passwordVisible },
-                trustInsecure = trustInsecure,
-                onTrustInsecureChange = { trustInsecure = it },
-                saving = saving,
-                testing = testing,
-                onCancel = { editorMode = null },
-                onSave = {
-                    val config = runCatching { currentConfig() }.getOrElse {
-                        showMessage(it.message ?: "请检查服务器配置")
-                        return@ServerEditorCard
-                    }
-                    saving = true
-                    scope.launch {
-                        runCatching {
-                            withContext(Dispatchers.IO) { repository.saveServer(config) }
-                        }.onSuccess {
-                            profiles = it
-                            editorMode = null
-                            showMessage(if (mode == ServerEditorMode.ADD) "服务器已添加" else "服务器配置已保存")
-                        }.onFailure {
-                            showMessage(it.message ?: "保存失败，请检查填写内容")
+        AnimatedVisibility(
+            visible = editorMode != null,
+            enter = fadeIn() + expandVertically(expandFrom = Alignment.Top),
+            exit = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Top),
+        ) {
+            displayedEditorMode?.let { mode ->
+                ServerEditorCard(
+                    title = if (mode == ServerEditorMode.ADD) "新增服务器" else "编辑服务器",
+                    serverName = serverName,
+                    onServerNameChange = { serverName = it },
+                    serverUrl = serverUrl,
+                    onServerUrlChange = { serverUrl = it },
+                    username = username,
+                    onUsernameChange = { username = it },
+                    password = password,
+                    onPasswordChange = { password = it },
+                    passwordVisible = passwordVisible,
+                    onPasswordVisibilityChange = { passwordVisible = !passwordVisible },
+                    trustInsecure = trustInsecure,
+                    onTrustInsecureChange = { trustInsecure = it },
+                    saving = saving,
+                    testing = testing,
+                    onCancel = { editorMode = null },
+                    onSave = {
+                        val config = runCatching { currentConfig() }.getOrElse {
+                            showMessage(it.message ?: "请检查服务器配置")
+                            return@ServerEditorCard
                         }
-                        saving = false
-                    }
-                },
-                onTest = {
-                    val config = runCatching { currentConfig() }.getOrElse {
-                        showMessage(it.message ?: "请检查服务器配置")
-                        return@ServerEditorCard
-                    }
-                    testing = true
-                    scope.launch {
-                        runCatching {
-                            withContext(Dispatchers.IO) { SyncClipboardClient(config).testConnection() }
-                        }.onSuccess {
-                            showMessage("连接成功")
-                        }.onFailure {
-                            showMessage(it.message ?: "连接失败，请检查网络和服务器配置")
+                        saving = true
+                        scope.launch {
+                            runCatching {
+                                withContext(Dispatchers.IO) { repository.saveServer(config) }
+                            }.onSuccess {
+                                profiles = it
+                                editorMode = null
+                                showMessage(
+                                    if (mode == ServerEditorMode.ADD) {
+                                        "服务器已添加"
+                                    } else {
+                                        "服务器配置已保存"
+                                    },
+                                )
+                            }.onFailure {
+                                showMessage(it.message ?: "保存失败，请检查填写内容")
+                            }
+                            saving = false
                         }
-                        testing = false
-                    }
-                },
-            )
+                    },
+                    onTest = {
+                        val config = runCatching { currentConfig() }.getOrElse {
+                            showMessage(it.message ?: "请检查服务器配置")
+                            return@ServerEditorCard
+                        }
+                        testing = true
+                        scope.launch {
+                            runCatching {
+                                withContext(Dispatchers.IO) {
+                                    SyncClipboardClient(config).testConnection()
+                                }
+                            }.onSuccess {
+                                showMessage("连接成功")
+                            }.onFailure {
+                                showMessage(it.message ?: "连接失败，请检查网络和服务器配置")
+                            }
+                            testing = false
+                        }
+                    },
+                )
+            }
         }
         TileCard(
             onAddUpload = {
@@ -756,7 +773,6 @@ private fun ServerProfilesCard(
                 OutlinedButton(
                     onClick = { menuExpanded = true },
                     enabled = profiles.servers.isNotEmpty() && !editorOpen,
-                    colors = neutralOutlinedButtonColors(),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
@@ -781,18 +797,10 @@ private fun ServerProfilesCard(
                     }
                 }
             }
-            FilledTonalButton(
-                onClick = onAdd,
-                enabled = !editorOpen,
-                colors = neutralFilledButtonColors(),
-            ) {
+            FilledTonalButton(onClick = onAdd, enabled = !editorOpen) {
                 Text("新增")
             }
-            TextButton(
-                onClick = onEdit,
-                enabled = activeServer != null && !editorOpen,
-                colors = neutralTextButtonColors(),
-            ) {
+            TextButton(onClick = onEdit, enabled = activeServer != null && !editorOpen) {
                 Text("编辑")
             }
         }
@@ -862,10 +870,7 @@ private fun ServerEditorCard(
                 PasswordVisualTransformation()
             },
             trailingIcon = {
-                TextButton(
-                    onClick = onPasswordVisibilityChange,
-                    colors = neutralTextButtonColors(),
-                ) {
+                TextButton(onClick = onPasswordVisibilityChange) {
                     Text(if (passwordVisible) "隐藏" else "显示")
                 }
             },
@@ -893,7 +898,6 @@ private fun ServerEditorCard(
         FilledTonalButton(
             onClick = onTest,
             enabled = !testing && !saving,
-            colors = neutralFilledButtonColors(),
             modifier = Modifier.fillMaxWidth(),
         ) {
             if (testing) {
@@ -909,15 +913,13 @@ private fun ServerEditorCard(
             OutlinedButton(
                 onClick = onCancel,
                 enabled = !saving && !testing,
-                colors = neutralOutlinedButtonColors(),
                 modifier = Modifier.weight(1f),
             ) {
                 Text("取消")
             }
-            FilledTonalButton(
+            Button(
                 onClick = onSave,
                 enabled = !saving && !testing,
-                colors = neutralFilledButtonColors(),
                 modifier = Modifier.weight(1f),
             ) {
                 if (saving) {
@@ -1025,10 +1027,7 @@ private fun SaveDirectoryRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        OutlinedButton(
-            onClick = onChoose,
-            colors = neutralOutlinedButtonColors(),
-        ) {
+        OutlinedButton(onClick = onChoose) {
             Text(if (selected) "更改" else "选择")
         }
     }
@@ -1061,11 +1060,7 @@ private fun SystemExtensionCard(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        OutlinedButton(
-            onClick = onRefresh,
-            colors = neutralOutlinedButtonColors(),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
+        OutlinedButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) {
             Text("重新检查")
         }
         if (installed) {
@@ -1100,6 +1095,12 @@ private fun SettingSwitchRow(
         Switch(
             checked = checked,
             enabled = enabled,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                checkedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+                disabledCheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                disabledCheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+            ),
             onCheckedChange = onCheckedChange,
         )
     }
@@ -1111,38 +1112,14 @@ private fun TileCard(
     onAddDownload: () -> Unit,
 ) {
     SectionCard(title = "快速设置磁贴") {
-        FilledTonalButton(
-            onClick = onAddUpload,
-            colors = neutralFilledButtonColors(),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
+        FilledTonalButton(onClick = onAddUpload, modifier = Modifier.fillMaxWidth()) {
             Text("添加上传磁贴")
         }
-        FilledTonalButton(
-            onClick = onAddDownload,
-            colors = neutralFilledButtonColors(),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
+        FilledTonalButton(onClick = onAddDownload, modifier = Modifier.fillMaxWidth()) {
             Text("添加下载磁贴")
         }
     }
 }
-
-@Composable
-private fun neutralFilledButtonColors(): ButtonColors = ButtonDefaults.filledTonalButtonColors(
-    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-)
-
-@Composable
-private fun neutralOutlinedButtonColors(): ButtonColors = ButtonDefaults.outlinedButtonColors(
-    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-)
-
-@Composable
-private fun neutralTextButtonColors(): ButtonColors = ButtonDefaults.textButtonColors(
-    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-)
 
 @Composable
 private fun SectionCard(
