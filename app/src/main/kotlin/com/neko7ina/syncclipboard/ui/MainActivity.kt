@@ -57,6 +57,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchColors
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -800,7 +801,10 @@ private fun ServerProfilesCard(
             FilledTonalButton(onClick = onAdd, enabled = !editorOpen) {
                 Text("新增")
             }
-            TextButton(onClick = onEdit, enabled = activeServer != null && !editorOpen) {
+            FilledTonalButton(
+                onClick = onEdit,
+                enabled = activeServer != null && !editorOpen,
+            ) {
                 Text("编辑")
             }
         }
@@ -893,7 +897,11 @@ private fun ServerEditorCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Switch(checked = trustInsecure, onCheckedChange = onTrustInsecureChange)
+            Switch(
+                checked = trustInsecure,
+                colors = tonalSwitchColors(),
+                onCheckedChange = onTrustInsecureChange,
+            )
         }
         FilledTonalButton(
             onClick = onTest,
@@ -1095,16 +1103,19 @@ private fun SettingSwitchRow(
         Switch(
             checked = checked,
             enabled = enabled,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                checkedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
-                disabledCheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                disabledCheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant,
-            ),
+            colors = tonalSwitchColors(),
             onCheckedChange = onCheckedChange,
         )
     }
 }
+
+@Composable
+private fun tonalSwitchColors(): SwitchColors = SwitchDefaults.colors(
+    checkedThumbColor = MaterialTheme.colorScheme.onSecondaryContainer,
+    checkedTrackColor = MaterialTheme.colorScheme.secondaryContainer,
+    disabledCheckedThumbColor = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.38f),
+    disabledCheckedTrackColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.38f),
+)
 
 @Composable
 private fun TileCard(
