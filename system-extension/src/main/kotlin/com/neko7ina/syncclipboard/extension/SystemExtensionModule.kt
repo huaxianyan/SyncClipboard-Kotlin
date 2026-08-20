@@ -1,6 +1,8 @@
 package com.neko7ina.syncclipboard.extension
 
+import android.annotation.SuppressLint
 import android.app.Application
+import android.app.KeyguardManager
 import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager
@@ -45,6 +47,14 @@ private object SystemClipboardConnector {
     private var bound = false
     private var suppressedText: String? = null
 
+    private val keyguardListener = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        KeyguardManager.KeyguardLockedStateListener { locked ->
+            notifyHostDeviceLockState(locked)
+        }
+    } else {
+        null
+    }
+
     private val bridgeCallback = object : ISystemClipboardBridge.Stub() {
         override fun setClipboardText(text: String, sourceHash: String) {
             handler.post {
@@ -63,6 +73,10 @@ private object SystemClipboardConnector {
             host = ISyncBridgeService.Stub.asInterface(service)
             runCatching {
                 host?.registerSystemBridge(BridgeContract.PROTOCOL_VERSION, bridgeCallback)
+            }.onSuccess { result ->
+                if (result == BridgeContract.REGISTERED) notifyHostDeviceLockState()
+            }.onFailure {
+                resetBinding()
             }
         }
 
@@ -103,12 +117,29 @@ private object SystemClipboardConnector {
             .onFailure { resetBinding() }
     }
 
+    @SuppressLint("MissingPermission") // 代码在已持有此系统权限的 SystemUI 进程中运行。
     fun start(application: Application) {
         if (!started.compareAndSet(false, true)) return
         context = application.applicationContext
         application.getSystemService(ClipboardManager::class.java)
             .addPrimaryClipChangedListener(clipListener)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            keyguardListener?.let { listener ->
+                runCatching {
+                    application.getSystemService(KeyguardManager::class.java)
+                        .addKeyguardLockedStateListener(application.mainExecutor, listener)
+                }
+            }
+        }
         bindHost()
+    }
+
+    private fun notifyHostDeviceLockState(locked: Boolean? = null) {
+        val appContext = context ?: return
+        val deviceLocked = locked ?: appContext.getSystemService(KeyguardManager::class.java)
+            .isDeviceLocked
+        runCatching { host?.onDeviceLockStateChanged(deviceLocked) }
+            .onFailure { resetBinding() }
     }
 
     private fun resetBinding() {

@@ -25,7 +25,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -67,12 +66,11 @@ class SystemBridgeService : Service() {
 
     private val screenStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            deviceUnlocked = when (intent.action) {
-                Intent.ACTION_SCREEN_OFF -> false
-                else -> isDeviceUnlocked()
+            if (intent.action == Intent.ACTION_SCREEN_OFF) {
+                updateDeviceUnlockedState(false)
+            } else {
+                refreshDeviceUnlockedState()
             }
-            requestPendingTextUpload()
-            requestRemoteSyncRestart()
         }
     }
 
@@ -90,9 +88,11 @@ class SystemBridgeService : Service() {
         ): Int {
             enforceSystemUiCaller()
             if (protocolVersion != BridgeContract.PROTOCOL_VERSION) {
+                Log.w(TAG, "System bridge protocol mismatch: $protocolVersion")
                 incompatibleBridgeDetected = true
                 return BridgeContract.INCOMPATIBLE
             }
+            Log.i(TAG, "System bridge registered with protocol $protocolVersion")
             incompatibleBridgeDetected = false
             disconnectSystemBridge(restartRemoteSync = false)
             systemBridge = bridge
@@ -118,6 +118,13 @@ class SystemBridgeService : Service() {
             if (sensitive && settings.ignoreSensitiveContent) return
             pendingClipboardText = text
             requestPendingTextUpload()
+        }
+
+        override fun onDeviceLockStateChanged(locked: Boolean) {
+            enforceSystemUiCaller()
+            val interactive = getSystemService(PowerManager::class.java).isInteractive
+            Log.i(TAG, "System lock state changed: locked=$locked, interactive=$interactive")
+            updateDeviceUnlockedState(!locked && interactive)
         }
 
         override fun getConnectionState(): Int {
@@ -168,7 +175,7 @@ class SystemBridgeService : Service() {
                 addAction(Intent.ACTION_SCREEN_ON)
                 addAction(Intent.ACTION_USER_PRESENT)
             },
-            Context.RECEIVER_NOT_EXPORTED,
+            Context.RECEIVER_EXPORTED,
         )
         connectivityManager.registerDefaultNetworkCallback(networkCallback)
     }
@@ -232,9 +239,11 @@ class SystemBridgeService : Service() {
     private fun requestRemoteSyncRestart() {
         scope.launch {
             remoteSyncLifecycleMutex.withLock {
-                remoteSyncJob?.cancelAndJoin()
+                if (remoteSyncJob?.isActive == true) Log.i(TAG, "Remote sync stopping")
+                remoteSyncJob?.cancel()
                 remoteSyncJob = null
                 if (shouldRunRemoteSync()) {
+                    Log.i(TAG, "Remote sync starting")
                     remoteSyncJob = scope.launch { runRemoteSyncLoop() }
                 }
             }
@@ -317,10 +326,23 @@ class SystemBridgeService : Service() {
             systemBridge?.asBinder()?.isBinderAlive == true
     }
 
+    private fun refreshDeviceUnlockedState() {
+        updateDeviceUnlockedState(isDeviceUnlocked())
+    }
+
+    private fun updateDeviceUnlockedState(unlocked: Boolean) {
+        if (deviceUnlocked == unlocked) return
+        deviceUnlocked = unlocked
+        Log.i(TAG, "Device unlocked state changed: $deviceUnlocked")
+        requestPendingTextUpload()
+        requestRemoteSyncRestart()
+    }
+
     private fun refreshNetworkAvailability() {
         val available = isNetworkAvailable()
         if (networkAvailable == available) return
         networkAvailable = available
+        Log.i(TAG, "Network availability changed: $networkAvailable")
         requestPendingTextUpload()
         requestRemoteSyncRestart()
     }

@@ -6,6 +6,7 @@ interface ISyncBridgeService {
     int registerSystemBridge(int protocolVersion, ISystemClipboardBridge bridge);
     void unregisterSystemBridge();
     void onClipboardText(String text, boolean sensitive);
+    void onDeviceLockStateChanged(boolean locked);
     int getConnectionState();
     long getLastClipboardEventTime();
     long getLastSuccessfulSyncTime();

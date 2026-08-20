@@ -1,7 +1,7 @@
 package com.neko7ina.syncclipboard.bridge
 
 object BridgeContract {
-    const val PROTOCOL_VERSION = 1
+    const val PROTOCOL_VERSION = 2
     const val REGISTERED = 0
     const val INCOMPATIBLE = 1
 

@@ -8,6 +8,7 @@ import com.neko7ina.syncclipboard.data.ServerConfig
 import com.neko7ina.syncclipboard.net.HttpClientSecurity
 import kotlinx.coroutines.CompletableDeferred
 import okhttp3.Credentials
+import java.util.concurrent.TimeUnit
 
 class SignalRSyncClient(
     config: ServerConfig,
@@ -41,11 +42,17 @@ class SignalRSyncClient(
     suspend fun awaitClosed(): Throwable? = closed.await()
 
     fun stop() {
-        runCatching { connection.stop().blockingAwait() }
+        runCatching {
+            connection.stop()
+                .timeout(STOP_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .onErrorComplete()
+                .blockingAwait()
+        }
     }
 
     private companion object {
         const val REMOTE_PROFILE_CHANGED = "RemoteProfileChanged"
+        const val STOP_TIMEOUT_SECONDS = 5L
     }
 }
 
