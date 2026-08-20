@@ -34,7 +34,7 @@ jobs:
     permissions:
       contents: write
     env:
-      SYNC_CLIPBOARD_STORE_FILE: ${{ runner.temp }}/syncclipboard-release.jks
+      SYNC_CLIPBOARD_STORE_FILE: ${{ github.workspace }}/syncclipboard-release.jks
       SYNC_CLIPBOARD_STORE_PASSWORD: ${{ secrets.SYNC_CLIPBOARD_STORE_PASSWORD }}
       SYNC_CLIPBOARD_KEY_ALIAS: ${{ secrets.SYNC_CLIPBOARD_KEY_ALIAS }}
       SYNC_CLIPBOARD_KEY_PASSWORD: ${{ secrets.SYNC_CLIPBOARD_KEY_PASSWORD }}
