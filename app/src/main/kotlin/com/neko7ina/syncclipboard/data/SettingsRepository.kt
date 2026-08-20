@@ -1,6 +1,7 @@
 package com.neko7ina.syncclipboard.data
 
 import android.content.Context
+import android.content.SharedPreferences
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -89,6 +90,8 @@ class SettingsRepository(
         uploadText = preferences.getBoolean(KEY_ADVANCED_UPLOAD_TEXT, true),
         downloadText = preferences.getBoolean(KEY_ADVANCED_DOWNLOAD_TEXT, true),
         ignoreSensitiveContent = preferences.getBoolean(KEY_IGNORE_SENSITIVE_CONTENT, true),
+        imageSaveTreeUri = preferences.getString(KEY_IMAGE_SAVE_TREE_URI, null),
+        fileSaveTreeUri = preferences.getString(KEY_FILE_SAVE_TREE_URI, null),
     )
 
     fun loadLastAutomaticRemoteHash(): String? =
@@ -105,10 +108,17 @@ class SettingsRepository(
                 .putBoolean(KEY_ADVANCED_UPLOAD_TEXT, settings.uploadText)
                 .putBoolean(KEY_ADVANCED_DOWNLOAD_TEXT, settings.downloadText)
                 .putBoolean(KEY_IGNORE_SENSITIVE_CONTENT, settings.ignoreSensitiveContent)
+                .putNullableString(KEY_IMAGE_SAVE_TREE_URI, settings.imageSaveTreeUri)
+                .putNullableString(KEY_FILE_SAVE_TREE_URI, settings.fileSaveTreeUri)
                 .remove(KEY_POLLING_INTERVAL_SECONDS)
                 .commit(),
         ) { "保存自动同步设置失败" }
     }
+
+    private fun SharedPreferences.Editor.putNullableString(
+        key: String,
+        value: String?,
+    ): SharedPreferences.Editor = if (value == null) remove(key) else putString(key, value)
 
     private fun persistMigratedProfiles(profiles: ServerProfiles) {
         preferences.edit()
@@ -194,6 +204,8 @@ class SettingsRepository(
         const val KEY_ADVANCED_UPLOAD_TEXT = "advanced_upload_text"
         const val KEY_ADVANCED_DOWNLOAD_TEXT = "advanced_download_text"
         const val KEY_IGNORE_SENSITIVE_CONTENT = "ignore_sensitive_content"
+        const val KEY_IMAGE_SAVE_TREE_URI = "image_save_tree_uri"
+        const val KEY_FILE_SAVE_TREE_URI = "file_save_tree_uri"
         const val KEY_POLLING_INTERVAL_SECONDS = "polling_interval_seconds"
         const val KEY_LAST_AUTOMATIC_REMOTE_HASH = "last_automatic_remote_hash"
     }

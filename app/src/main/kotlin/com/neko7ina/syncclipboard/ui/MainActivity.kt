@@ -7,7 +7,9 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -439,6 +441,11 @@ private enum class ServerEditorMode {
     EDIT,
 }
 
+private enum class SaveDirectoryType {
+    IMAGE,
+    FILE,
+}
+
 @Composable
 private fun SettingsPage(
     contentPadding: PaddingValues,
@@ -486,8 +493,15 @@ private fun SettingsPage(
         trustInsecureCertificate = trustInsecure,
     ).also { it.validate() }
 
-    fun saveAdvancedSync(newSettings: AdvancedSyncSettings) {
-        if (newSettings.enabled && extensionState.status != SystemExtensionStatus.READY) {
+    fun saveAdvancedSync(
+        newSettings: AdvancedSyncSettings,
+        onSaved: () -> Unit = {},
+    ) {
+        if (
+            newSettings.enabled &&
+            !advancedSync.enabled &&
+            extensionState.status != SystemExtensionStatus.READY
+        ) {
             showMessage("系统扩展连接后才能开启高级自动同步")
             return
         }
@@ -497,12 +511,53 @@ private fun SettingsPage(
                 withContext(Dispatchers.IO) { repository.saveAdvancedSyncSettings(newSettings) }
             }.onSuccess {
                 extensionController.reloadConfiguration()
+                onSaved()
             }.onFailure {
                 advancedSync = repository.loadAdvancedSyncSettings()
                 showMessage(it.message ?: "保存自动同步设置失败")
             }
         }
     }
+
+    fun saveDirectory(uri: Uri, type: SaveDirectoryType) {
+        val permissionFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+            Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(uri, permissionFlags)
+        }.onSuccess {
+            val previousUri = when (type) {
+                SaveDirectoryType.IMAGE -> advancedSync.imageSaveTreeUri
+                SaveDirectoryType.FILE -> advancedSync.fileSaveTreeUri
+            }
+            val otherUri = when (type) {
+                SaveDirectoryType.IMAGE -> advancedSync.fileSaveTreeUri
+                SaveDirectoryType.FILE -> advancedSync.imageSaveTreeUri
+            }
+            val updated = when (type) {
+                SaveDirectoryType.IMAGE -> advancedSync.copy(imageSaveTreeUri = uri.toString())
+                SaveDirectoryType.FILE -> advancedSync.copy(fileSaveTreeUri = uri.toString())
+            }
+            saveAdvancedSync(updated) {
+                if (previousUri != null && previousUri != uri.toString() && previousUri != otherUri) {
+                    runCatching {
+                        context.contentResolver.releasePersistableUriPermission(
+                            Uri.parse(previousUri),
+                            permissionFlags,
+                        )
+                    }
+                }
+            }
+        }.onFailure {
+            showMessage("无法使用所选目录，请重新选择")
+        }
+    }
+
+    val imageDirectoryLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree(),
+    ) { uri -> uri?.let { saveDirectory(it, SaveDirectoryType.IMAGE) } }
+    val fileDirectoryLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree(),
+    ) { uri -> uri?.let { saveDirectory(it, SaveDirectoryType.FILE) } }
 
     if (showUninstallConfirmation) {
         AlertDialog(
@@ -532,7 +587,16 @@ private fun SettingsPage(
         AdvancedSyncSettingsCard(
             settings = advancedSync,
             extensionStatus = extensionState.status,
-            onSettingsChange = ::saveAdvancedSync,
+            onSettingsChange = { saveAdvancedSync(it) },
+        )
+        AutomaticSyncStorageCard(
+            settings = advancedSync,
+            onChooseImageDirectory = {
+                imageDirectoryLauncher.launch(advancedSync.imageSaveTreeUri?.let(Uri::parse))
+            },
+            onChooseFileDirectory = {
+                fileDirectoryLauncher.launch(advancedSync.fileSaveTreeUri?.let(Uri::parse))
+            },
         )
         SystemExtensionCard(
             status = extensionState.status,
@@ -881,6 +945,51 @@ private fun AdvancedSyncSettingsCard(
             enabled = settings.enabled,
             onCheckedChange = { onSettingsChange(settings.copy(ignoreSensitiveContent = it)) },
         )
+    }
+}
+
+@Composable
+private fun AutomaticSyncStorageCard(
+    settings: AdvancedSyncSettings,
+    onChooseImageDirectory: () -> Unit,
+    onChooseFileDirectory: () -> Unit,
+) {
+    SectionCard(title = "自动接收保存位置") {
+        SaveDirectoryRow(
+            title = "图片保存目录",
+            selected = settings.imageSaveTreeUri != null,
+            onChoose = onChooseImageDirectory,
+        )
+        SaveDirectoryRow(
+            title = "文件保存目录",
+            selected = settings.fileSaveTreeUri != null,
+            onChoose = onChooseFileDirectory,
+        )
+    }
+}
+
+@Composable
+private fun SaveDirectoryRow(
+    title: String,
+    selected: Boolean,
+    onChoose: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                if (selected) "已选择目录" else "尚未选择",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        OutlinedButton(onClick = onChoose) {
+            Text(if (selected) "更改" else "选择")
+        }
     }
 }
 
