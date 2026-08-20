@@ -33,6 +33,8 @@ data class AdvancedSyncSettings(
     val enabled: Boolean = false,
     val uploadText: Boolean = true,
     val downloadText: Boolean = true,
+    val downloadImage: Boolean = false,
+    val downloadFile: Boolean = false,
     val ignoreSensitiveContent: Boolean = true,
     val imageSaveTreeUri: String? = null,
     val fileSaveTreeUri: String? = null,

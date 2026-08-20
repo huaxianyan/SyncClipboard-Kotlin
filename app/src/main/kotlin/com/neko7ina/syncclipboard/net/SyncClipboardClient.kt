@@ -17,6 +17,7 @@ import okhttp3.Response
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.io.IOException
+import java.io.InputStream
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Proxy
@@ -52,6 +53,10 @@ class SyncClipboardClient(
     fun getFile(fileName: String): ByteArray = execute(
         request("file", fileName).get().build(),
     ) { it.bytes() }
+
+    fun <T> readFile(fileName: String, read: (InputStream) -> T): T = execute(
+        request("file", fileName).get().build(),
+    ) { body -> body.byteStream().use(read) }
 
     fun testConnection() {
         getClipboard()

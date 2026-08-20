@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import com.neko7ina.syncclipboard.data.AdvancedSyncSettings
 import com.neko7ina.syncclipboard.data.SettingsRepository
 import com.neko7ina.syncclipboard.data.SyncDirection
 import com.neko7ina.syncclipboard.net.SyncClipboardClient
@@ -63,10 +64,41 @@ class ClipboardTransferService(private val context: Context) {
         return result
     }
 
-    fun downloadTextIfChanged(
+    fun downloadAutomatically(
         previousHash: String?,
+        settings: AdvancedSyncSettings,
         onText: (text: String, sourceHash: String) -> Unit,
-    ): String? = applyRemoteTextIfChanged(client().getClipboard(), previousHash, onText)
+    ): String? = applyRemoteAutomatically(client().getClipboard(), previousHash, settings, onText)
+
+    fun applyRemoteAutomatically(
+        payload: ClipboardPayload,
+        previousHash: String?,
+        settings: AdvancedSyncSettings,
+        onText: (text: String, sourceHash: String) -> Unit,
+    ): String? {
+        val sourceHash = payload.hash ?: PayloadFactory.sha256(payload.toJson().toByteArray())
+        if (sourceHash.equals(previousHash, ignoreCase = true)) return null
+
+        return when (payload.type) {
+            ClipboardType.TEXT -> if (settings.downloadText) {
+                applyRemoteTextIfChanged(payload, previousHash, onText)
+            } else {
+                null
+            }
+
+            ClipboardType.IMAGE -> if (settings.downloadImage) {
+                downloadRemoteFile(payload, settings.imageSaveTreeUri, sourceHash)
+            } else {
+                null
+            }
+
+            ClipboardType.FILE, ClipboardType.GROUP -> if (settings.downloadFile) {
+                downloadRemoteFile(payload, settings.fileSaveTreeUri, sourceHash)
+            } else {
+                null
+            }
+        }
+    }
 
     fun applyRemoteTextIfChanged(
         payload: ClipboardPayload,
@@ -78,6 +110,26 @@ class ClipboardTransferService(private val context: Context) {
         if (payload.type != ClipboardType.TEXT) return sourceHash
 
         applyDownloadedPayload(client(), payload) { text -> onText(text, sourceHash) }
+        SettingsRepository(context).recordSuccessfulSync(SyncDirection.DOWNLOAD)
+        return sourceHash
+    }
+
+    private fun downloadRemoteFile(
+        payload: ClipboardPayload,
+        treeUri: String?,
+        sourceHash: String,
+    ): String {
+        val destination = treeUri ?: throw SyncException("请先选择对应的保存目录")
+        val name = payload.dataName ?: throw SyncException("远端文件缺少文件名")
+        client().readFile(name) { input ->
+            SafFileStore(context).writeVerified(
+                treeUriValue = destination,
+                fileName = name,
+                mimeType = guessMimeType(name),
+                expectedHash = payload.hash,
+                input = input,
+            )
+        }
         SettingsRepository(context).recordSuccessfulSync(SyncDirection.DOWNLOAD)
         return sourceHash
     }

@@ -32,6 +32,17 @@ class PayloadFactoryTest {
     }
 
     @Test
+    fun `streamed file content hash produces compatible payload hash`() {
+        assertEquals(
+            "95BCEF73DDD6E7C8D23555943F91FA8600D10DDD1852E0069F5C24ADC91EC318",
+            PayloadFactory.fileHash(
+                "note.txt",
+                "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD",
+            ),
+        )
+    }
+
+    @Test
     fun `image mime type produces image payload`() {
         val upload = PayloadFactory.file("photo.dat", byteArrayOf(1, 2, 3), "image/png")
 

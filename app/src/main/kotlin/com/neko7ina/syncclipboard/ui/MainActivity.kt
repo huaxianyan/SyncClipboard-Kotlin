@@ -375,6 +375,8 @@ private fun AutomaticSyncCard(
         running -> buildList {
             if (settings.uploadText) add("自动上传文本")
             if (settings.downloadText) add("自动接收文本")
+            if (settings.downloadImage) add("自动接收图片")
+            if (settings.downloadFile) add("自动接收文件")
         }.joinToString(" · ").ifEmpty { "已连接系统扩展" }
         !settings.enabled -> "磁贴、分享和手动同步可继续使用。"
         extensionState.status == SystemExtensionStatus.NOT_INSTALLED -> "安装系统扩展后可恢复后台同步。"
@@ -518,6 +520,14 @@ private fun SettingsPage(
             extensionState.status != SystemExtensionStatus.READY
         ) {
             showMessage("系统扩展连接后才能开启高级自动同步")
+            return
+        }
+        if (newSettings.downloadImage && newSettings.imageSaveTreeUri == null) {
+            showMessage("请先选择图片保存目录")
+            return
+        }
+        if (newSettings.downloadFile && newSettings.fileSaveTreeUri == null) {
+            showMessage("请先选择文件保存目录")
             return
         }
         advancedSync = newSettings
@@ -980,6 +990,28 @@ private fun AdvancedSyncSettingsCard(
             checked = settings.downloadText,
             enabled = settings.enabled,
             onCheckedChange = { onSettingsChange(settings.copy(downloadText = it)) },
+        )
+        SettingSwitchRow(
+            title = "自动接收图片",
+            detail = if (settings.imageSaveTreeUri == null) {
+                "请先选择图片保存目录。"
+            } else {
+                "收到远端图片后保存到所选目录。"
+            },
+            checked = settings.downloadImage,
+            enabled = settings.enabled,
+            onCheckedChange = { onSettingsChange(settings.copy(downloadImage = it)) },
+        )
+        SettingSwitchRow(
+            title = "自动接收文件",
+            detail = if (settings.fileSaveTreeUri == null) {
+                "请先选择文件保存目录。"
+            } else {
+                "收到远端文件后保存到所选目录。"
+            },
+            checked = settings.downloadFile,
+            enabled = settings.enabled,
+            onCheckedChange = { onSettingsChange(settings.copy(downloadFile = it)) },
         )
         SettingSwitchRow(
             title = "忽略敏感内容",

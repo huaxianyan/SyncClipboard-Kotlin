@@ -261,7 +261,7 @@ class SystemBridgeService : Service() {
                 if (!shouldRunRemoteSync()) return
                 failureIndex = 0
                 Log.i(TAG, "SignalR connected")
-                transferMutex.withLock { pollRemoteText() }
+                transferMutex.withLock { pollRemoteClipboard() }
                 lastFallbackPollAt = SystemClock.elapsedRealtime()
                 val closeError = client.awaitClosed()
                 throw closeError ?: IllegalStateException("SignalR connection closed")
@@ -271,7 +271,7 @@ class SystemBridgeService : Service() {
                 Log.w(TAG, "SignalR unavailable", error)
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastFallbackPollAt >= FALLBACK_POLL_INTERVAL_MILLIS) {
-                    transferMutex.withLock { pollRemoteText() }
+                    transferMutex.withLock { pollRemoteClipboard() }
                     lastFallbackPollAt = now
                 }
             } finally {
@@ -288,39 +288,44 @@ class SystemBridgeService : Service() {
             transferMutex.withLock {
                 val callback = systemBridge ?: return@withLock
                 val previousHash = repository.loadLastAutomaticRemoteHash()
+                val settings = repository.loadAdvancedSyncSettings()
                 runCatching {
                     ClipboardTransferService(this@SystemBridgeService)
-                        .applyRemoteTextIfChanged(payload, previousHash) { text, sourceHash ->
+                        .applyRemoteAutomatically(payload, previousHash, settings) { text, sourceHash ->
                             callback.setClipboardText(text, sourceHash)
                         }
                 }.onSuccess { newHash ->
                     if (newHash != null) repository.saveLastAutomaticRemoteHash(newHash)
-                }.onFailure { Log.w(TAG, "Automatic pushed text download failed", it) }
+                }.onFailure { Log.w(TAG, "Automatic pushed content download failed", it) }
             }
         }
     }
 
-    private fun pollRemoteText() {
+    private fun pollRemoteClipboard() {
         val callback = systemBridge ?: return
         val settings = repository.loadAdvancedSyncSettings()
-        if (!settings.enabled || !settings.downloadText) return
+        if (!settings.enabled) return
         val previousHash = repository.loadLastAutomaticRemoteHash()
         runCatching {
-            ClipboardTransferService(this).downloadTextIfChanged(previousHash) { text, sourceHash ->
+            ClipboardTransferService(this).downloadAutomatically(
+                previousHash,
+                settings,
+            ) { text, sourceHash ->
                 callback.setClipboardText(text, sourceHash)
             }
         }.onSuccess { newHash ->
             if (newHash != null) repository.saveLastAutomaticRemoteHash(newHash)
         }.onFailure {
-            Log.w(TAG, "Automatic text download failed", it)
+            Log.w(TAG, "Automatic content download failed", it)
             if (!callback.asBinder().isBinderAlive) disconnectSystemBridge()
         }
     }
 
     private fun shouldRunRemoteSync(): Boolean {
         val settings = repository.loadAdvancedSyncSettings()
+        val downloadsEnabled = settings.downloadText || settings.downloadImage || settings.downloadFile
         return settings.enabled &&
-            settings.downloadText &&
+            downloadsEnabled &&
             deviceUnlocked &&
             networkAvailable &&
             systemBridge?.asBinder()?.isBinderAlive == true

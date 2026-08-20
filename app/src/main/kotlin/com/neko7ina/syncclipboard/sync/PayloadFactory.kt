@@ -42,10 +42,9 @@ object PayloadFactory {
 
     fun file(fileName: String, bytes: ByteArray, mimeType: String?): PreparedUpload {
         if (bytes.isEmpty()) throw SyncException("文件内容为空")
-        val safeName = fileName.substringAfterLast('/').substringAfterLast('\\')
-            .ifBlank { "clipboard_data.bin" }
+        val safeName = safeFileName(fileName)
         val contentHash = sha256(bytes)
-        val hash = sha256("$safeName|$contentHash".toByteArray(StandardCharsets.UTF_8))
+        val hash = fileHash(safeName, contentHash)
         val type = if (isImage(safeName, mimeType)) ClipboardType.IMAGE else ClipboardType.FILE
         return PreparedUpload(
             payload = ClipboardPayload(
@@ -64,6 +63,15 @@ object PayloadFactory {
     fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256")
         .digest(bytes)
         .joinToString(separator = "") { "%02X".format(it) }
+
+    fun fileHash(fileName: String, contentHash: String): String = sha256(
+        "${safeFileName(fileName)}|$contentHash".toByteArray(StandardCharsets.UTF_8),
+    )
+
+    fun safeFileName(fileName: String): String = fileName
+        .substringAfterLast('/')
+        .substringAfterLast('\\')
+        .ifBlank { "clipboard_data.bin" }
 
     private fun isImage(fileName: String, mimeType: String?): Boolean {
         if (mimeType?.startsWith("image/") == true) return true

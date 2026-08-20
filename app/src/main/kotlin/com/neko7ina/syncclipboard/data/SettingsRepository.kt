@@ -89,6 +89,8 @@ class SettingsRepository(
         enabled = preferences.getBoolean(KEY_ADVANCED_SYNC_ENABLED, false),
         uploadText = preferences.getBoolean(KEY_ADVANCED_UPLOAD_TEXT, true),
         downloadText = preferences.getBoolean(KEY_ADVANCED_DOWNLOAD_TEXT, true),
+        downloadImage = preferences.getBoolean(KEY_ADVANCED_DOWNLOAD_IMAGE, false),
+        downloadFile = preferences.getBoolean(KEY_ADVANCED_DOWNLOAD_FILE, false),
         ignoreSensitiveContent = preferences.getBoolean(KEY_IGNORE_SENSITIVE_CONTENT, true),
         imageSaveTreeUri = preferences.getString(KEY_IMAGE_SAVE_TREE_URI, null),
         fileSaveTreeUri = preferences.getString(KEY_FILE_SAVE_TREE_URI, null),
@@ -107,6 +109,8 @@ class SettingsRepository(
                 .putBoolean(KEY_ADVANCED_SYNC_ENABLED, settings.enabled)
                 .putBoolean(KEY_ADVANCED_UPLOAD_TEXT, settings.uploadText)
                 .putBoolean(KEY_ADVANCED_DOWNLOAD_TEXT, settings.downloadText)
+                .putBoolean(KEY_ADVANCED_DOWNLOAD_IMAGE, settings.downloadImage)
+                .putBoolean(KEY_ADVANCED_DOWNLOAD_FILE, settings.downloadFile)
                 .putBoolean(KEY_IGNORE_SENSITIVE_CONTENT, settings.ignoreSensitiveContent)
                 .putNullableString(KEY_IMAGE_SAVE_TREE_URI, settings.imageSaveTreeUri)
                 .putNullableString(KEY_FILE_SAVE_TREE_URI, settings.fileSaveTreeUri)
@@ -203,6 +207,8 @@ class SettingsRepository(
         const val KEY_ADVANCED_SYNC_ENABLED = "advanced_sync_enabled"
         const val KEY_ADVANCED_UPLOAD_TEXT = "advanced_upload_text"
         const val KEY_ADVANCED_DOWNLOAD_TEXT = "advanced_download_text"
+        const val KEY_ADVANCED_DOWNLOAD_IMAGE = "advanced_download_image"
+        const val KEY_ADVANCED_DOWNLOAD_FILE = "advanced_download_file"
         const val KEY_IGNORE_SENSITIVE_CONTENT = "ignore_sensitive_content"
         const val KEY_IMAGE_SAVE_TREE_URI = "image_save_tree_uri"
         const val KEY_FILE_SAVE_TREE_URI = "file_save_tree_uri"
