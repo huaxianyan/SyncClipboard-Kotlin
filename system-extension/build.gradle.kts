@@ -6,11 +6,11 @@ plugins {
 apply(from = rootProject.file("gradle/signing.gradle"))
 
 android {
-    namespace = "com.huaxianyan.syncclipboard.extension"
+    namespace = "com.neko7ina.syncclipboard.extension"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.huaxianyan.syncclipboard.extension"
+        applicationId = "com.neko7ina.syncclipboard.extension"
         minSdk = 29
         targetSdk = 35
         versionCode = 1

@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.huaxianyan.syncclipboard.bridge"
+    namespace = "com.neko7ina.syncclipboard.bridge"
     compileSdk = 35
 
     defaultConfig {
