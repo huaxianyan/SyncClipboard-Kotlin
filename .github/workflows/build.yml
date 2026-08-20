@@ -3,6 +3,7 @@ name: Build
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -23,4 +24,53 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: SyncClipboard-Kotlin-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            system-extension/build/outputs/apk/debug/system-extension-debug.apk
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      SYNC_CLIPBOARD_STORE_FILE: ${{ runner.temp }}/syncclipboard-release.jks
+      SYNC_CLIPBOARD_STORE_PASSWORD: ${{ secrets.SYNC_CLIPBOARD_STORE_PASSWORD }}
+      SYNC_CLIPBOARD_KEY_ALIAS: ${{ secrets.SYNC_CLIPBOARD_KEY_ALIAS }}
+      SYNC_CLIPBOARD_KEY_PASSWORD: ${{ secrets.SYNC_CLIPBOARD_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Restore production signing key
+        env:
+          SYNC_CLIPBOARD_KEYSTORE_BASE64: ${{ secrets.SYNC_CLIPBOARD_KEYSTORE_BASE64 }}
+        run: printf '%s' "$SYNC_CLIPBOARD_KEYSTORE_BASE64" | base64 --decode > "$SYNC_CLIPBOARD_STORE_FILE"
+      - name: Build signed release APKs
+        run: ./gradlew assembleRelease
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SyncClipboard-Kotlin-release
+          path: |
+            app/build/outputs/apk/release/app-release.apk
+            system-extension/build/outputs/apk/release/system-extension-release.apk
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" \
+              app/build/outputs/apk/release/app-release.apk \
+              system-extension/build/outputs/apk/release/system-extension-release.apk \
+              --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              app/build/outputs/apk/release/app-release.apk \
+              system-extension/build/outputs/apk/release/system-extension-release.apk \
+              --verify-tag --generate-notes
+          fi
