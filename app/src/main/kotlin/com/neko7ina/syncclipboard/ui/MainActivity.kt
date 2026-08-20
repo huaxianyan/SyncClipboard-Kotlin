@@ -62,6 +62,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -957,12 +958,12 @@ private fun AutomaticSyncStorageCard(
     SectionCard(title = "自动接收保存位置") {
         SaveDirectoryRow(
             title = "图片保存目录",
-            selected = settings.imageSaveTreeUri != null,
+            treeUri = settings.imageSaveTreeUri,
             onChoose = onChooseImageDirectory,
         )
         SaveDirectoryRow(
             title = "文件保存目录",
-            selected = settings.fileSaveTreeUri != null,
+            treeUri = settings.fileSaveTreeUri,
             onChoose = onChooseFileDirectory,
         )
     }
@@ -971,9 +972,22 @@ private fun AutomaticSyncStorageCard(
 @Composable
 private fun SaveDirectoryRow(
     title: String,
-    selected: Boolean,
+    treeUri: String?,
     onChoose: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val detail by produceState(
+        initialValue = if (treeUri == null) "尚未选择" else "正在读取目录",
+        key1 = treeUri,
+    ) {
+        value = treeUri?.let { storedUri ->
+            withContext(Dispatchers.IO) {
+                resolveSafDirectoryLabel(context, Uri.parse(storedUri))
+            }
+        } ?: "尚未选择"
+    }
+    val selected = treeUri != null
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -982,7 +996,7 @@ private fun SaveDirectoryRow(
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(title, style = MaterialTheme.typography.bodyLarge)
             Text(
-                if (selected) "已选择目录" else "尚未选择",
+                detail,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
