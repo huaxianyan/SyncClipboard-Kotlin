@@ -1,0 +1,50 @@
+import java.util.Properties
+
+final File credentialsFile = new File(System.getProperty('user.home'), '.gradle/syncclipboard-signing.properties')
+final Properties credentials = new Properties()
+if (credentialsFile.isFile()) {
+    credentialsFile.withInputStream { credentials.load(it) }
+}
+
+def signingValue = { String propertyName, String environmentName ->
+    def propertyValue = credentials.getProperty(propertyName)
+    propertyValue?.trim() ? propertyValue : System.getenv(environmentName)?.trim()
+}
+
+final String storeFilePath = signingValue('storeFile', 'SYNC_CLIPBOARD_STORE_FILE')
+final String storePasswordValue = signingValue('storePassword', 'SYNC_CLIPBOARD_STORE_PASSWORD')
+final String keyAliasValue = signingValue('keyAlias', 'SYNC_CLIPBOARD_KEY_ALIAS')
+final String keyPasswordValue = signingValue('keyPassword', 'SYNC_CLIPBOARD_KEY_PASSWORD')
+final boolean signingAvailable = [
+    storeFilePath,
+    storePasswordValue,
+    keyAliasValue,
+    keyPasswordValue,
+].every { it != null }
+
+android {
+    if (signingAvailable) {
+        signingConfigs {
+            syncClipboardProduction {
+                storeFile file(storeFilePath)
+                storePassword storePasswordValue
+                keyAlias keyAliasValue
+                keyPassword keyPasswordValue
+            }
+        }
+        buildTypes.configureEach {
+            signingConfig signingConfigs.syncClipboardProduction
+        }
+    }
+}
+
+if (!signingAvailable) {
+    gradle.taskGraph.whenReady { graph ->
+        boolean unsignedReleaseRequested = graph.allTasks.any { task ->
+            task.project == project && task.name.toLowerCase().contains('release')
+        }
+        if (unsignedReleaseRequested) {
+            throw new GradleException("缺少 SyncClipboard 生产签名配置：${credentialsFile}")
+        }
+    }
+}

@@ -58,4 +58,14 @@ system-extension/build/outputs/apk/debug/system-extension-debug.apk
 
 主体应用可以独立安装。需要高级自动同步时，再安装系统扩展 APK，并在模块管理器中启用。
 
+## 签名
+
+本机测试和正式发布统一读取：
+
+```text
+%USERPROFILE%\.gradle\syncclipboard-signing.properties
+```
+
+主体 APK 与系统扩展 APK 使用同一生产证书。签名文件和密码不得提交到仓库；CI 可通过 `SYNC_CLIPBOARD_STORE_FILE`、`SYNC_CLIPBOARD_STORE_PASSWORD`、`SYNC_CLIPBOARD_KEY_ALIAS` 和 `SYNC_CLIPBOARD_KEY_PASSWORD` 环境变量提供签名。缺少生产签名时允许执行 Debug 构建，但 Release 构建会直接失败。
+
 最低支持 Android 10（API 29）。

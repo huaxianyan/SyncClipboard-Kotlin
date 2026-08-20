@@ -4,6 +4,8 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+apply(from = rootProject.file("gradle/signing.gradle"))
+
 android {
     namespace = "com.huaxianyan.syncclipboard"
     compileSdk = 35

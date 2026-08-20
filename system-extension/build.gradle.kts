@@ -3,6 +3,8 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+apply(from = rootProject.file("gradle/signing.gradle"))
+
 android {
     namespace = "com.huaxianyan.syncclipboard.extension"
     compileSdk = 35
