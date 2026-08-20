@@ -38,7 +38,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -579,7 +578,7 @@ private fun SettingsPage(
             title = { Text("卸载系统扩展？") },
             text = { Text("卸载后，后台自动同步将停止。磁贴、分享和手动同步继续可用。") },
             confirmButton = {
-                TextButton(
+                FilledTonalButton(
                     onClick = {
                         showUninstallConfirmation = false
                         context.startActivity(
@@ -592,7 +591,9 @@ private fun SettingsPage(
                 ) { Text("继续卸载") }
             },
             dismissButton = {
-                TextButton(onClick = { showUninstallConfirmation = false }) { Text("取消") }
+                FilledTonalButton(onClick = { showUninstallConfirmation = false }) {
+                    Text("取消")
+                }
             },
         )
     }
@@ -874,7 +875,7 @@ private fun ServerEditorCard(
                 PasswordVisualTransformation()
             },
             trailingIcon = {
-                TextButton(onClick = onPasswordVisibilityChange) {
+                FilledTonalButton(onClick = onPasswordVisibilityChange) {
                     Text(if (passwordVisible) "隐藏" else "显示")
                 }
             },
@@ -925,7 +926,7 @@ private fun ServerEditorCard(
             ) {
                 Text("取消")
             }
-            Button(
+            FilledTonalButton(
                 onClick = onSave,
                 enabled = !saving && !testing,
                 modifier = Modifier.weight(1f),
