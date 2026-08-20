@@ -35,5 +35,5 @@ android {
 
 dependencies {
     implementation(project(":bridge-api"))
-    compileOnly("io.github.libxposed:api:101.0.0")
+    compileOnly("io.github.libxposed:api:102.0.0")
 }
