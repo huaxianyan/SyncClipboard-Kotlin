@@ -110,6 +110,7 @@ class SystemBridgeService : Service() {
                     systemBridge = null
                     return BridgeContract.INCOMPATIBLE
                 }
+            requestPendingTextUpload()
             requestRemoteSyncRestart()
             return BridgeContract.REGISTERED
         }
@@ -129,7 +130,7 @@ class SystemBridgeService : Service() {
             val settings = repository.loadAdvancedSyncSettings()
             if (!settings.enabled || !settings.uploadText) return
             if (sensitive && settings.ignoreSensitiveContent) return
-            pendingClipboardText = text
+            storePendingText(text)
             requestPendingTextUpload()
         }
 
@@ -165,7 +166,12 @@ class SystemBridgeService : Service() {
                 this@SystemBridgeService,
                 reloadForAnotherProcess = true,
             )
-            if (!repository.loadAdvancedSyncSettings().uploadText) pendingClipboardText = null
+            val settings = repository.loadAdvancedSyncSettings()
+            if (!settings.enabled || !settings.uploadText) {
+                clearPendingText()
+            } else if (pendingClipboardText == null) {
+                pendingClipboardText = repository.loadPendingAutomaticText()
+            }
             signalRFailed = false
             automaticTransferFailed = false
             refreshNetworkAvailability()
@@ -187,6 +193,13 @@ class SystemBridgeService : Service() {
     override fun onCreate() {
         super.onCreate()
         repository = SettingsRepository(this, reloadForAnotherProcess = true)
+        val settings = repository.loadAdvancedSyncSettings()
+        pendingClipboardText = if (settings.enabled && settings.uploadText) {
+            repository.loadPendingAutomaticText()
+        } else {
+            repository.clearPendingAutomaticText()
+            null
+        }
         deviceUnlocked = isDeviceUnlocked()
         networkAvailable = isNetworkAvailable()
         registerReceiver(
@@ -209,6 +222,23 @@ class SystemBridgeService : Service() {
         disconnectSystemBridge(restartRemoteSync = false)
         scope.cancel()
         super.onDestroy()
+    }
+
+    @Synchronized
+    private fun storePendingText(text: String) {
+        repository.savePendingAutomaticText(text)
+        pendingClipboardText = text
+    }
+
+    @Synchronized
+    private fun clearPendingText(expectedText: String? = null) {
+        if (expectedText != null && pendingClipboardText != expectedText) return
+        if (expectedText == null) {
+            repository.clearPendingAutomaticText()
+        } else {
+            repository.clearPendingAutomaticTextIfMatches(expectedText)
+        }
+        pendingClipboardText = null
     }
 
     @Synchronized
@@ -238,7 +268,7 @@ class SystemBridgeService : Service() {
         val text = pendingClipboardText ?: return true
         val settings = repository.loadAdvancedSyncSettings()
         if (!settings.enabled || !settings.uploadText) {
-            pendingClipboardText = null
+            clearPendingText()
             return true
         }
         val previousHash = repository.loadLastAutomaticRemoteHash()
@@ -248,7 +278,7 @@ class SystemBridgeService : Service() {
             onSuccess = { hash ->
                 automaticTransferFailed = false
                 if (hash != null) repository.saveLastAutomaticRemoteHash(hash)
-                if (pendingClipboardText == text) pendingClipboardText = null
+                clearPendingText(text)
                 true
             },
             onFailure = {

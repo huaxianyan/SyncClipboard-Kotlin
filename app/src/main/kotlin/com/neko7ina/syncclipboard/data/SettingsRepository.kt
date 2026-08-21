@@ -104,6 +104,23 @@ class SettingsRepository(
         preferences.edit().putString(KEY_LAST_AUTOMATIC_REMOTE_HASH, hash).apply()
     }
 
+    fun loadPendingAutomaticText(): String? =
+        preferences.getString(KEY_PENDING_AUTOMATIC_TEXT, null)?.takeIf(String::isNotBlank)
+
+    fun savePendingAutomaticText(text: String) {
+        preferences.edit().putString(KEY_PENDING_AUTOMATIC_TEXT, text).apply()
+    }
+
+    fun clearPendingAutomaticTextIfMatches(text: String) {
+        if (preferences.getString(KEY_PENDING_AUTOMATIC_TEXT, null) == text) {
+            preferences.edit().remove(KEY_PENDING_AUTOMATIC_TEXT).apply()
+        }
+    }
+
+    fun clearPendingAutomaticText() {
+        preferences.edit().remove(KEY_PENDING_AUTOMATIC_TEXT).apply()
+    }
+
     fun saveAdvancedSyncSettings(settings: AdvancedSyncSettings) {
         check(
             preferences.edit()
@@ -217,5 +234,6 @@ class SettingsRepository(
         const val KEY_FILE_SAVE_TREE_URI = "file_save_tree_uri"
         const val KEY_POLLING_INTERVAL_SECONDS = "polling_interval_seconds"
         const val KEY_LAST_AUTOMATIC_REMOTE_HASH = "last_automatic_remote_hash"
+        const val KEY_PENDING_AUTOMATIC_TEXT = "pending_automatic_text"
     }
 }
