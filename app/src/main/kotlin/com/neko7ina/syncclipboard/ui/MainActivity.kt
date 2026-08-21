@@ -100,6 +100,10 @@ import com.neko7ina.syncclipboard.extension.SystemExtensionController
 import com.neko7ina.syncclipboard.extension.SystemExtensionState
 import com.neko7ina.syncclipboard.extension.SystemExtensionStatus
 import com.neko7ina.syncclipboard.net.SyncClipboardClient
+import com.neko7ina.syncclipboard.sync.AutomaticSyncEvent
+import com.neko7ina.syncclipboard.sync.AutomaticSyncEventKind
+import com.neko7ina.syncclipboard.sync.AutomaticSyncEventStore
+import com.neko7ina.syncclipboard.sync.ClipboardType
 import com.neko7ina.syncclipboard.sync.SyncFailureKind
 import com.neko7ina.syncclipboard.sync.toSyncFailureKind
 import com.neko7ina.syncclipboard.sync.toSyncUserMessage
@@ -295,6 +299,7 @@ private fun SyncClipboardApp(
                 connectionStatus = connectionStatus,
                 connectionFailure = connectionFailure,
                 onRetryConnection = { checkRequest++ },
+                showMessage = ::showMessage,
             )
             AppPage.SETTINGS -> SettingsPage(
                 contentPadding,
@@ -325,12 +330,29 @@ private fun DashboardPage(
     connectionStatus: ConnectionStatus,
     connectionFailure: SyncFailureKind?,
     onRetryConnection: () -> Unit,
+    showMessage: (String) -> Unit,
 ) {
     val context = LocalContext.current
     val repository = remember { SettingsRepository(context.applicationContext) }
+    val automaticSyncEventStore = remember {
+        AutomaticSyncEventStore(context.applicationContext)
+    }
+    val scope = rememberCoroutineScope()
     val lastSync = remember(extensionState.lastSuccessfulSyncTime) { repository.loadLastSync() }
     val advancedSync = remember(extensionState.status, extensionState.automaticSyncState) {
         repository.loadAdvancedSyncSettings()
+    }
+    var automaticSyncEvents by remember { mutableStateOf(emptyList<AutomaticSyncEvent>()) }
+
+    LaunchedEffect(
+        automaticSyncEventStore,
+        extensionState.status,
+        extensionState.automaticSyncState,
+        extensionState.lastSuccessfulSyncTime,
+    ) {
+        automaticSyncEvents = withContext(Dispatchers.IO) {
+            runCatching { automaticSyncEventStore.read() }.getOrDefault(emptyList())
+        }
     }
 
     PageColumn(contentPadding) {
@@ -341,6 +363,20 @@ private fun DashboardPage(
             onRetry = onRetryConnection,
         )
         AutomaticSyncCard(advancedSync, extensionState)
+        AutomaticSyncEventsCard(
+            events = automaticSyncEvents,
+            onClear = {
+                scope.launch {
+                    runCatching {
+                        withContext(Dispatchers.IO) { automaticSyncEventStore.clear() }
+                    }.onSuccess {
+                        automaticSyncEvents = emptyList()
+                    }.onFailure {
+                        showMessage("无法清除自动同步记录，请稍后重试")
+                    }
+                }
+            },
+        )
         LastSyncCard(lastSync)
     }
 }
@@ -519,6 +555,66 @@ private fun AutomaticSyncCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+}
+
+@Composable
+private fun AutomaticSyncEventsCard(
+    events: List<AutomaticSyncEvent>,
+    onClear: () -> Unit,
+) {
+    SectionCard(title = "自动同步记录") {
+        if (events.isEmpty()) {
+            Text(
+                "还没有自动同步记录。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            return@SectionCard
+        }
+        events.takeLast(10).asReversed().forEach { event ->
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(automaticSyncEventLabel(event), style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+                        .format(Date(event.timestampMillis)),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (events.size > 10) {
+            Text(
+                "另有 ${events.size - 10} 条较早记录",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        TextButton(onClick = onClear, modifier = Modifier.align(Alignment.End)) {
+            Text("清除记录")
+        }
+    }
+}
+
+private fun automaticSyncEventLabel(event: AutomaticSyncEvent): String {
+    val content = when (event.contentType) {
+        ClipboardType.TEXT -> "文本"
+        ClipboardType.IMAGE -> "图片"
+        ClipboardType.FILE -> "文件"
+        ClipboardType.GROUP -> "文件组"
+        null -> "内容"
+    }
+    val failure = syncFailureTitle(event.failure, "原因未知")
+    return when (event.kind) {
+        AutomaticSyncEventKind.EXTENSION_CONNECTED -> "系统扩展已连接"
+        AutomaticSyncEventKind.EXTENSION_DISCONNECTED -> "系统扩展连接已断开"
+        AutomaticSyncEventKind.WAITING_FOR_NETWORK -> "等待可用网络"
+        AutomaticSyncEventKind.REALTIME_CONNECTED -> "实时连接已建立"
+        AutomaticSyncEventKind.REALTIME_FAILED -> "实时连接失败 · $failure"
+        AutomaticSyncEventKind.UPLOAD_SUCCEEDED -> "$content 自动上传成功"
+        AutomaticSyncEventKind.UPLOAD_FAILED -> "$content 自动上传失败 · $failure"
+        AutomaticSyncEventKind.DOWNLOAD_SUCCEEDED -> "$content 自动接收成功"
+        AutomaticSyncEventKind.DOWNLOAD_FAILED -> "$content 自动接收失败 · $failure"
     }
 }
 

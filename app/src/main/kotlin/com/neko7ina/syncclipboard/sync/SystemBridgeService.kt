@@ -50,6 +50,8 @@ class SystemBridgeService : Service() {
     @Volatile
     private lateinit var repository: SettingsRepository
 
+    private val automaticSyncEvents by lazy { AutomaticSyncEventStore(this) }
+
     @Volatile
     private var deviceUnlocked = false
 
@@ -113,6 +115,9 @@ class SystemBridgeService : Service() {
                     systemBridge = null
                     return BridgeContract.INCOMPATIBLE
                 }
+            scope.launch {
+                recordAutomaticSyncEvent(AutomaticSyncEventKind.EXTENSION_CONNECTED)
+            }
             requestPendingTextUpload()
             requestRemoteSyncRestart()
             return BridgeContract.REGISTERED
@@ -211,6 +216,11 @@ class SystemBridgeService : Service() {
         }
         deviceUnlocked = isDeviceUnlocked()
         networkAvailable = isNetworkAvailable()
+        if (settings.enabled && !networkAvailable) {
+            scope.launch {
+                recordAutomaticSyncEvent(AutomaticSyncEventKind.WAITING_FOR_NETWORK)
+            }
+        }
         registerReceiver(
             screenStateReceiver,
             IntentFilter().apply {
@@ -290,12 +300,23 @@ class SystemBridgeService : Service() {
         }.fold(
             onSuccess = { hash ->
                 pendingUploadFailure = null
-                if (hash != null) repository.saveLastAutomaticRemoteHash(hash)
+                if (hash != null) {
+                    repository.saveLastAutomaticRemoteHash(hash)
+                    recordAutomaticSyncEvent(
+                        AutomaticSyncEventKind.UPLOAD_SUCCEEDED,
+                        contentType = ClipboardType.TEXT,
+                    )
+                }
                 clearPendingText(text)
                 true
             },
             onFailure = {
                 pendingUploadFailure = it.toSyncFailureKind()
+                recordAutomaticSyncEvent(
+                    AutomaticSyncEventKind.UPLOAD_FAILED,
+                    failure = pendingUploadFailure,
+                    contentType = ClipboardType.TEXT,
+                )
                 Log.w(TAG, "Automatic text upload failed", it)
                 false
             },
@@ -330,6 +351,7 @@ class SystemBridgeService : Service() {
                 failureIndex = 0
                 signalRConnected = true
                 signalRFailure = null
+                recordAutomaticSyncEvent(AutomaticSyncEventKind.REALTIME_CONNECTED)
                 Log.i(TAG, "SignalR connected")
                 transferMutex.withLock { pollRemoteClipboard() }
                 lastFallbackPollAt = SystemClock.elapsedRealtime()
@@ -340,6 +362,10 @@ class SystemBridgeService : Service() {
             } catch (error: Exception) {
                 signalRConnected = false
                 signalRFailure = error.toSyncFailureKind()
+                recordAutomaticSyncEvent(
+                    AutomaticSyncEventKind.REALTIME_FAILED,
+                    failure = signalRFailure,
+                )
                 Log.w(TAG, "SignalR unavailable", error)
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastFallbackPollAt >= FALLBACK_POLL_INTERVAL_MILLIS) {
@@ -368,9 +394,20 @@ class SystemBridgeService : Service() {
                         }
                 }.onSuccess { newHash ->
                     remoteTransferFailure = null
-                    if (newHash != null) repository.saveLastAutomaticRemoteHash(newHash)
+                    if (newHash != null) {
+                        repository.saveLastAutomaticRemoteHash(newHash)
+                        recordAutomaticSyncEvent(
+                            AutomaticSyncEventKind.DOWNLOAD_SUCCEEDED,
+                            contentType = payload.type,
+                        )
+                    }
                 }.onFailure {
                     remoteTransferFailure = it.toSyncFailureKind()
+                    recordAutomaticSyncEvent(
+                        AutomaticSyncEventKind.DOWNLOAD_FAILED,
+                        failure = remoteTransferFailure,
+                        contentType = payload.type,
+                    )
                     Log.w(TAG, "Automatic pushed content download failed", it)
                 }
             }
@@ -391,9 +428,16 @@ class SystemBridgeService : Service() {
             }
         }.onSuccess { newHash ->
             remoteTransferFailure = null
-            if (newHash != null) repository.saveLastAutomaticRemoteHash(newHash)
+            if (newHash != null) {
+                repository.saveLastAutomaticRemoteHash(newHash)
+                recordAutomaticSyncEvent(AutomaticSyncEventKind.DOWNLOAD_SUCCEEDED)
+            }
         }.onFailure {
             remoteTransferFailure = it.toSyncFailureKind()
+            recordAutomaticSyncEvent(
+                AutomaticSyncEventKind.DOWNLOAD_FAILED,
+                failure = remoteTransferFailure,
+            )
             Log.w(TAG, "Automatic content download failed", it)
             if (!callback.asBinder().isBinderAlive) disconnectSystemBridge()
         }
@@ -472,6 +516,11 @@ class SystemBridgeService : Service() {
         val available = isNetworkAvailable()
         if (networkAvailable == available) return
         networkAvailable = available
+        if (!available && repository.loadAdvancedSyncSettings().enabled) {
+            scope.launch {
+                recordAutomaticSyncEvent(AutomaticSyncEventKind.WAITING_FOR_NETWORK)
+            }
+        }
         Log.i(TAG, "Network availability changed: $networkAvailable")
         requestPendingTextUpload()
         requestRemoteSyncRestart()
@@ -494,8 +543,22 @@ class SystemBridgeService : Service() {
     private fun disconnectSystemBridge(restartRemoteSync: Boolean = true) {
         val current = systemBridge
         systemBridge = null
-        current?.asBinder()?.unlinkToDeath(bridgeDeathRecipient, 0)
+        if (current != null) {
+            current.asBinder().unlinkToDeath(bridgeDeathRecipient, 0)
+            scope.launch {
+                recordAutomaticSyncEvent(AutomaticSyncEventKind.EXTENSION_DISCONNECTED)
+            }
+        }
         if (restartRemoteSync) requestRemoteSyncRestart()
+    }
+
+    private fun recordAutomaticSyncEvent(
+        kind: AutomaticSyncEventKind,
+        failure: SyncFailureKind? = null,
+        contentType: ClipboardType? = null,
+    ) {
+        runCatching { automaticSyncEvents.record(kind, failure, contentType) }
+            .onFailure { Log.w(TAG, "Unable to record automatic sync event", it) }
     }
 
     private fun enforceSystemUiCaller() {
