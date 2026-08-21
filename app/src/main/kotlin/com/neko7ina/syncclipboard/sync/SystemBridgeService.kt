@@ -157,6 +157,7 @@ class SystemBridgeService : Service() {
                 reloadForAnotherProcess = true,
             )
             if (!repository.loadAdvancedSyncSettings().uploadText) pendingClipboardText = null
+            refreshNetworkAvailability()
             requestPendingTextUpload()
             requestRemoteSyncRestart()
         }
@@ -359,7 +360,9 @@ class SystemBridgeService : Service() {
     private fun isNetworkAvailable(): Boolean {
         val network = connectivityManager.activeNetwork ?: return false
         val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
-        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        if (!capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return false
+        val settings = repository.loadAdvancedSyncSettings()
+        return !settings.wifiOnly || capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
     }
 
     private fun isDeviceUnlocked(): Boolean {

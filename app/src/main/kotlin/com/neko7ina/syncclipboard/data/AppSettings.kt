@@ -31,6 +31,7 @@ data class ServerProfiles(
 
 data class AdvancedSyncSettings(
     val enabled: Boolean = false,
+    val wifiOnly: Boolean = false,
     val uploadText: Boolean = true,
     val downloadText: Boolean = true,
     val downloadImage: Boolean = false,

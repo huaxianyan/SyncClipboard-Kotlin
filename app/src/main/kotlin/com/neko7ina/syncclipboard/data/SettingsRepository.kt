@@ -87,6 +87,7 @@ class SettingsRepository(
 
     fun loadAdvancedSyncSettings(): AdvancedSyncSettings = AdvancedSyncSettings(
         enabled = preferences.getBoolean(KEY_ADVANCED_SYNC_ENABLED, false),
+        wifiOnly = preferences.getBoolean(KEY_ADVANCED_WIFI_ONLY, false),
         uploadText = preferences.getBoolean(KEY_ADVANCED_UPLOAD_TEXT, true),
         downloadText = preferences.getBoolean(KEY_ADVANCED_DOWNLOAD_TEXT, true),
         downloadImage = preferences.getBoolean(KEY_ADVANCED_DOWNLOAD_IMAGE, false),
@@ -107,6 +108,7 @@ class SettingsRepository(
         check(
             preferences.edit()
                 .putBoolean(KEY_ADVANCED_SYNC_ENABLED, settings.enabled)
+                .putBoolean(KEY_ADVANCED_WIFI_ONLY, settings.wifiOnly)
                 .putBoolean(KEY_ADVANCED_UPLOAD_TEXT, settings.uploadText)
                 .putBoolean(KEY_ADVANCED_DOWNLOAD_TEXT, settings.downloadText)
                 .putBoolean(KEY_ADVANCED_DOWNLOAD_IMAGE, settings.downloadImage)
@@ -205,6 +207,7 @@ class SettingsRepository(
         const val KEY_LAST_SYNC_TIME = "last_sync_time"
         const val KEY_LAST_SYNC_DIRECTION = "last_sync_direction"
         const val KEY_ADVANCED_SYNC_ENABLED = "advanced_sync_enabled"
+        const val KEY_ADVANCED_WIFI_ONLY = "advanced_wifi_only"
         const val KEY_ADVANCED_UPLOAD_TEXT = "advanced_upload_text"
         const val KEY_ADVANCED_DOWNLOAD_TEXT = "advanced_download_text"
         const val KEY_ADVANCED_DOWNLOAD_IMAGE = "advanced_download_image"

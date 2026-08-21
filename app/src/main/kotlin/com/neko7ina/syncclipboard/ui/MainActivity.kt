@@ -978,6 +978,13 @@ private fun AdvancedSyncSettingsCard(
             onCheckedChange = { onSettingsChange(settings.copy(enabled = it)) },
         )
         SettingSwitchRow(
+            title = "仅通过 Wi-Fi 自动同步",
+            detail = "使用移动网络时暂停，连接 Wi-Fi 后继续。",
+            checked = settings.wifiOnly,
+            enabled = settings.enabled,
+            onCheckedChange = { onSettingsChange(settings.copy(wifiOnly = it)) },
+        )
+        SettingSwitchRow(
             title = "自动上传文本",
             detail = "解锁期间自动上传，断网后恢复重试。",
             checked = settings.uploadText,
