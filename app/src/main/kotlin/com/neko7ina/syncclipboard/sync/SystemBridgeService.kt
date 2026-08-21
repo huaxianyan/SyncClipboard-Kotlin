@@ -112,6 +112,10 @@ class SystemBridgeService : Service() {
 
         override fun onClipboardText(text: String, sensitive: Boolean) {
             enforceSystemUiCaller()
+            if (text.isBlank()) {
+                if (pendingClipboardText?.isBlank() == true) pendingClipboardText = null
+                return
+            }
             this@SystemBridgeService.lastClipboardEventTime = System.currentTimeMillis()
             val settings = repository.loadAdvancedSyncSettings()
             if (!settings.enabled || !settings.uploadText) return
