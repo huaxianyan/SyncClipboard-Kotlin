@@ -27,6 +27,17 @@ data class ServerProfiles(
 ) {
     val activeServer: ServerConfig?
         get() = servers.firstOrNull { it.id == activeServerId }
+
+    fun withoutServer(serverId: String): ServerProfiles {
+        require(servers.any { it.id == serverId }) { "服务器方案不存在，请刷新后重试" }
+        val remaining = servers.filterNot { it.id == serverId }
+        val nextActiveId = if (activeServerId == serverId) {
+            remaining.firstOrNull()?.id
+        } else {
+            activeServerId
+        }
+        return ServerProfiles(remaining, nextActiveId)
+    }
 }
 
 data class AdvancedSyncSettings(

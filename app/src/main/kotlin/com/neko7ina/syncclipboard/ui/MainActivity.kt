@@ -588,6 +588,7 @@ private fun SettingsPage(
     var testing by rememberSaveable { mutableStateOf(false) }
     var advancedSync by remember { mutableStateOf(repository.loadAdvancedSyncSettings()) }
     var showUninstallConfirmation by rememberSaveable { mutableStateOf(false) }
+    var serverPendingDeletion by remember { mutableStateOf<ServerConfig?>(null) }
     var showLicense by rememberSaveable { mutableStateOf(false) }
 
     fun openEditor(mode: ServerEditorMode) {
@@ -611,6 +612,12 @@ private fun SettingsPage(
         password = password,
         trustInsecureCertificate = trustInsecure,
     ).also { it.validate() }
+
+    fun applyServerProfiles(updatedProfiles: ServerProfiles) {
+        profiles = updatedProfiles
+        onServerChanged(updatedProfiles.activeServer)
+        extensionController.reloadConfiguration()
+    }
 
     fun saveAdvancedSync(
         newSettings: AdvancedSyncSettings,
@@ -711,6 +718,48 @@ private fun SettingsPage(
             },
         )
     }
+    serverPendingDeletion?.let { server ->
+        AlertDialog(
+            onDismissRequest = { serverPendingDeletion = null },
+            title = { Text("删除服务器方案？") },
+            text = {
+                Text(
+                    if (profiles.servers.size == 1) {
+                        "「${server.displayName}」将从此设备移除。删除后需要重新添加服务器才能同步。"
+                    } else {
+                        "「${server.displayName}」将从此设备移除，随后会使用列表中的其他服务器。"
+                    },
+                )
+            },
+            confirmButton = {
+                FilledTonalButton(
+                    onClick = {
+                        serverPendingDeletion = null
+                        scope.launch {
+                            runCatching {
+                                withContext(Dispatchers.IO) {
+                                    repository.deleteServer(server.id)
+                                }
+                            }.onSuccess {
+                                applyServerProfiles(it)
+                                editorMode = null
+                                showMessage("服务器方案已删除")
+                            }.onFailure {
+                                showMessage(it.message ?: "删除服务器方案失败，请重试")
+                            }
+                        }
+                    },
+                ) {
+                    Text("删除", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                FilledTonalButton(onClick = { serverPendingDeletion = null }) {
+                    Text("取消")
+                }
+            },
+        )
+    }
     if (showLicense) {
         LicenseDialog(onDismiss = { showLicense = false })
     }
@@ -742,10 +791,8 @@ private fun SettingsPage(
                 scope.launch {
                     runCatching {
                         withContext(Dispatchers.IO) { repository.selectServer(server.id) }
-                    }.onSuccess {
-                        profiles = it
-                        onServerChanged(it.activeServer)
-                    }.onFailure { showMessage(it.message ?: "切换服务器失败，请重试") }
+                    }.onSuccess(::applyServerProfiles)
+                        .onFailure { showMessage(it.message ?: "切换服务器失败，请重试") }
                 }
             },
             onAdd = { openEditor(ServerEditorMode.ADD) },
@@ -774,6 +821,11 @@ private fun SettingsPage(
                     saving = saving,
                     testing = testing,
                     onCancel = { editorMode = null },
+                    onDelete = if (mode == ServerEditorMode.EDIT) {
+                        { profiles.activeServer?.let { serverPendingDeletion = it } }
+                    } else {
+                        null
+                    },
                     onSave = {
                         val config = runCatching { currentConfig() }.getOrElse {
                             showMessage(it.message ?: "请检查服务器配置")
@@ -784,8 +836,7 @@ private fun SettingsPage(
                             runCatching {
                                 withContext(Dispatchers.IO) { repository.saveServer(config) }
                             }.onSuccess {
-                                profiles = it
-                                onServerChanged(it.activeServer)
+                                applyServerProfiles(it)
                                 editorMode = null
                                 showMessage(
                                     if (mode == ServerEditorMode.ADD) {
@@ -957,6 +1008,7 @@ private fun ServerEditorCard(
     saving: Boolean,
     testing: Boolean,
     onCancel: () -> Unit,
+    onDelete: (() -> Unit)?,
     onSave: () -> Unit,
     onTest: () -> Unit,
 ) {
@@ -1068,6 +1120,15 @@ private fun ServerEditorCard(
                     Spacer(Modifier.size(8.dp))
                 }
                 Text(if (saving) "正在保存" else "保存")
+            }
+        }
+        onDelete?.let {
+            TextButton(
+                onClick = it,
+                enabled = !saving && !testing,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("删除服务器方案", color = MaterialTheme.colorScheme.error)
             }
         }
     }

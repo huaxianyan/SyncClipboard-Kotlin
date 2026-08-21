@@ -65,9 +65,14 @@ class SettingsRepository(
     @Synchronized
     fun selectServer(serverId: String): ServerProfiles {
         val current = loadServerProfiles()
-        require(current.servers.any { it.id == serverId }) { "服务器方案不存在" }
+        require(current.servers.any { it.id == serverId }) { "服务器方案不存在，请刷新后重试" }
         return current.copy(activeServerId = serverId).also(::persistProfiles)
     }
+
+    @Synchronized
+    fun deleteServer(serverId: String): ServerProfiles = loadServerProfiles()
+        .withoutServer(serverId)
+        .also(::persistProfiles)
 
     fun loadLastSync(): LastSync? {
         val timestamp = preferences.getLong(KEY_LAST_SYNC_TIME, 0L)
@@ -161,6 +166,7 @@ class SettingsRepository(
                 .remove(KEY_USERNAME)
                 .remove(KEY_PASSWORD)
                 .remove(KEY_TRUST_INSECURE)
+                .remove(KEY_LAST_AUTOMATIC_REMOTE_HASH)
                 .commit(),
         ) { "保存服务器配置失败" }
     }
