@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <color name="launcher_background">#D1E4FF</color>
     <color name="primary">#0061A4</color>
     <color name="primary_dark">#00497D</color>
     <color name="md_surface_container_high">#E7E9EE</color>
