@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -36,6 +37,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -199,6 +201,7 @@ class MainActivity : ComponentActivity() {
 private enum class AppPage(val title: String) {
     HOME("首页"),
     SETTINGS("设置"),
+    AUTOMATIC_SYNC_EVENTS("自动同步记录"),
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -271,22 +274,38 @@ private fun SyncClipboardApp(
         checkRequest++
     }
 
+    val showingSecondaryPage = currentPage == AppPage.AUTOMATIC_SYNC_EVENTS
+    BackHandler(enabled = showingSecondaryPage) { currentPage = AppPage.HOME }
+
     Scaffold(
-        topBar = { LargeTopAppBar(title = { Text(currentPage.title) }) },
+        topBar = {
+            LargeTopAppBar(
+                title = { Text(currentPage.title) },
+                navigationIcon = {
+                    if (showingSecondaryPage) {
+                        IconButton(onClick = { currentPage = AppPage.HOME }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                        }
+                    }
+                },
+            )
+        },
         bottomBar = {
-            NavigationBar {
-                NavigationBarItem(
-                    selected = currentPage == AppPage.HOME,
-                    onClick = { currentPage = AppPage.HOME },
-                    icon = { Icon(Icons.Default.Home, contentDescription = null) },
-                    label = { Text("首页") },
-                )
-                NavigationBarItem(
-                    selected = currentPage == AppPage.SETTINGS,
-                    onClick = { currentPage = AppPage.SETTINGS },
-                    icon = { Icon(Icons.Default.Settings, contentDescription = null) },
-                    label = { Text("设置") },
-                )
+            if (!showingSecondaryPage) {
+                NavigationBar {
+                    NavigationBarItem(
+                        selected = currentPage == AppPage.HOME,
+                        onClick = { currentPage = AppPage.HOME },
+                        icon = { Icon(Icons.Default.Home, contentDescription = null) },
+                        label = { Text("首页") },
+                    )
+                    NavigationBarItem(
+                        selected = currentPage == AppPage.SETTINGS,
+                        onClick = { currentPage = AppPage.SETTINGS },
+                        icon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                        label = { Text("设置") },
+                    )
+                }
             }
         },
         snackbarHost = { SnackbarHost(snackbar) },
@@ -299,7 +318,9 @@ private fun SyncClipboardApp(
                 connectionStatus = connectionStatus,
                 connectionFailure = connectionFailure,
                 onRetryConnection = { checkRequest++ },
-                showMessage = ::showMessage,
+                onOpenAutomaticSyncEvents = {
+                    currentPage = AppPage.AUTOMATIC_SYNC_EVENTS
+                },
             )
             AppPage.SETTINGS -> SettingsPage(
                 contentPadding,
@@ -308,6 +329,10 @@ private fun SyncClipboardApp(
                 extensionController,
                 ::showMessage,
                 ::updateServer,
+            )
+            AppPage.AUTOMATIC_SYNC_EVENTS -> AutomaticSyncEventsPage(
+                contentPadding = contentPadding,
+                showMessage = ::showMessage,
             )
         }
     }
@@ -330,29 +355,13 @@ private fun DashboardPage(
     connectionStatus: ConnectionStatus,
     connectionFailure: SyncFailureKind?,
     onRetryConnection: () -> Unit,
-    showMessage: (String) -> Unit,
+    onOpenAutomaticSyncEvents: () -> Unit,
 ) {
     val context = LocalContext.current
     val repository = remember { SettingsRepository(context.applicationContext) }
-    val automaticSyncEventStore = remember {
-        AutomaticSyncEventStore(context.applicationContext)
-    }
-    val scope = rememberCoroutineScope()
     val lastSync = remember(extensionState.lastSuccessfulSyncTime) { repository.loadLastSync() }
     val advancedSync = remember(extensionState.status, extensionState.automaticSyncState) {
         repository.loadAdvancedSyncSettings()
-    }
-    var automaticSyncEvents by remember { mutableStateOf(emptyList<AutomaticSyncEvent>()) }
-
-    LaunchedEffect(
-        automaticSyncEventStore,
-        extensionState.status,
-        extensionState.automaticSyncState,
-        extensionState.lastSuccessfulSyncTime,
-    ) {
-        automaticSyncEvents = withContext(Dispatchers.IO) {
-            runCatching { automaticSyncEventStore.read() }.getOrDefault(emptyList())
-        }
     }
 
     PageColumn(contentPadding) {
@@ -362,20 +371,10 @@ private fun DashboardPage(
             failure = connectionFailure,
             onRetry = onRetryConnection,
         )
-        AutomaticSyncCard(advancedSync, extensionState)
-        AutomaticSyncEventsCard(
-            events = automaticSyncEvents,
-            onClear = {
-                scope.launch {
-                    runCatching {
-                        withContext(Dispatchers.IO) { automaticSyncEventStore.clear() }
-                    }.onSuccess {
-                        automaticSyncEvents = emptyList()
-                    }.onFailure {
-                        showMessage("无法清除自动同步记录，请稍后重试")
-                    }
-                }
-            },
+        AutomaticSyncCard(
+            settings = advancedSync,
+            extensionState = extensionState,
+            onOpenEvents = onOpenAutomaticSyncEvents,
         )
         LastSyncCard(lastSync)
     }
@@ -453,6 +452,7 @@ private fun ConnectionCard(
 private fun AutomaticSyncCard(
     settings: AdvancedSyncSettings,
     extensionState: SystemExtensionState,
+    onOpenEvents: () -> Unit,
 ) {
     val extensionReady = extensionState.status == SystemExtensionStatus.READY
     val runtimeState = extensionState.automaticSyncState
@@ -555,43 +555,69 @@ private fun AutomaticSyncCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        OutlinedButton(onClick = onOpenEvents, modifier = Modifier.fillMaxWidth()) {
+            Text("查看自动同步记录")
+        }
     }
 }
 
 @Composable
-private fun AutomaticSyncEventsCard(
-    events: List<AutomaticSyncEvent>,
-    onClear: () -> Unit,
+private fun AutomaticSyncEventsPage(
+    contentPadding: PaddingValues,
+    showMessage: (String) -> Unit,
 ) {
-    SectionCard(title = "自动同步记录") {
-        if (events.isEmpty()) {
-            Text(
-                "还没有自动同步记录。",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            return@SectionCard
+    val context = LocalContext.current
+    val eventStore = remember { AutomaticSyncEventStore(context.applicationContext) }
+    val scope = rememberCoroutineScope()
+    var events by remember { mutableStateOf(emptyList<AutomaticSyncEvent>()) }
+    var loaded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(eventStore) {
+        events = withContext(Dispatchers.IO) {
+            runCatching { eventStore.read() }.getOrDefault(emptyList())
         }
-        events.takeLast(10).asReversed().forEach { event ->
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(automaticSyncEventLabel(event), style = MaterialTheme.typography.bodyLarge)
-                Text(
-                    DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
-                        .format(Date(event.timestampMillis)),
-                    style = MaterialTheme.typography.bodySmall,
+        loaded = true
+    }
+
+    PageColumn(contentPadding) {
+        SectionCard(title = "最近 7 天") {
+            when {
+                !loaded -> CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
+                events.isEmpty() -> Text(
+                    "还没有自动同步记录。",
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                else -> events.asReversed().forEach { event ->
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(automaticSyncEventLabel(event), style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+                                .format(Date(event.timestampMillis)),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
-        }
-        if (events.size > 10) {
-            Text(
-                "另有 ${events.size - 10} 条较早记录",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        TextButton(onClick = onClear, modifier = Modifier.align(Alignment.End)) {
-            Text("清除记录")
+            if (loaded && events.isNotEmpty()) {
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            runCatching {
+                                withContext(Dispatchers.IO) { eventStore.clear() }
+                            }.onSuccess {
+                                events = emptyList()
+                            }.onFailure {
+                                showMessage("无法清除自动同步记录，请稍后重试")
+                            }
+                        }
+                    },
+                    modifier = Modifier.align(Alignment.End),
+                ) {
+                    Text("清除记录")
+                }
+            }
         }
     }
 }
