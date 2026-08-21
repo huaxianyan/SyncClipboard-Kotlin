@@ -53,12 +53,19 @@ jobs:
         run: printf '%s' "$SYNC_CLIPBOARD_KEYSTORE_BASE64" | base64 --decode > "$SYNC_CLIPBOARD_STORE_FILE"
       - name: Build signed release APKs
         run: ./gradlew assembleRelease
+      - name: Verify release APKs
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            export RELEASE_TAG="$GITHUB_REF_NAME"
+          fi
+          ./scripts/verify-release.sh
       - uses: actions/upload-artifact@v5
         with:
           name: SyncClipboard-Kotlin-release
           path: |
             app/build/outputs/apk/release/app-release.apk
             system-extension/build/outputs/apk/release/system-extension-release.apk
+            build/release/SHA256SUMS
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
@@ -74,11 +81,13 @@ jobs:
             gh release upload "$GITHUB_REF_NAME" \
               app/build/outputs/apk/release/app-release.apk \
               system-extension/build/outputs/apk/release/system-extension-release.apk \
+              build/release/SHA256SUMS \
               --clobber
           else
             gh release create "$GITHUB_REF_NAME" \
               app/build/outputs/apk/release/app-release.apk \
               system-extension/build/outputs/apk/release/system-extension-release.apk \
+              build/release/SHA256SUMS \
               --verify-tag \
               --title "SyncClipboard Kotlin $GITHUB_REF_NAME" \
               --notes-file "$notes_file"

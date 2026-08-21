@@ -83,7 +83,7 @@ system-extension/build/outputs/apk/release/system-extension-release.apk
 `.github/workflows/build.yml` 包含两个任务：
 
 - `android`：在推送和 Pull Request 时执行单元测试、Lint 与 Debug 构建
-- `release`：手动触发或推送 `v*` 标签时构建生产签名 APK
+- `release`：在 `android` 任务成功后，为手动触发或 `v*` 标签构建生产签名 APK
 
 Release 任务使用以下 GitHub Actions Secrets：
 
@@ -96,7 +96,15 @@ SYNC_CLIPBOARD_KEY_PASSWORD
 
 其中 `SYNC_CLIPBOARD_KEYSTORE_BASE64` 保存 JKS 文件的 Base64 内容。工作流只在 Runner 临时目录恢复签名文件，不会将密钥写入仓库。
 
-手动运行工作流会上传签名 APK Artifact；推送 `v*` 标签还会创建对应的 GitHub Release。
+Release 构建完成后，`scripts/verify-release.sh` 会检查标签与版本号、两个 APK 的包名与版本、生产证书指纹及内置许可证，并生成 `SHA256SUMS`。生产证书的公开 SHA-256 指纹只维护在 `gradle/release-certificate.sha256`，私钥仍仅存在于本地和 GitHub Actions Secrets。
+
+本地已有 Release APK 时，可在设置 `ANDROID_HOME` 或 `ANDROID_SDK_ROOT` 后执行：
+
+```bash
+RELEASE_TAG=vX.Y.Z ./scripts/verify-release.sh
+```
+
+手动运行工作流会上传签名 APK 和 `SHA256SUMS` Artifact；推送 `v*` 标签还会创建对应的 GitHub Release。
 
 ## 模块版本
 
