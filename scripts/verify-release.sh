@@ -62,6 +62,8 @@ verify_apk() {
     normalized_expected="$(printf '%s' "$EXPECTED_CERTIFICATE" | tr '[:upper:]' '[:lower:]')"
     if [[ "$normalized_certificate" != "$normalized_expected" ]]; then
         echo "Unexpected signing certificate for $(basename "$apk")" >&2
+        printf 'Expected: %s (%s characters)\n' "$normalized_expected" "${#normalized_expected}" >&2
+        printf 'Actual:   %s (%s characters)\n' "$normalized_certificate" "${#normalized_certificate}" >&2
         exit 1
     fi
 
