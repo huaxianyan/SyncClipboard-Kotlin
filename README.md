@@ -1,71 +1,77 @@
 # SyncClipboard Kotlin
 
-一个原生 Android Kotlin 客户端，用于通过 SyncClipboard/WebDAV 数据格式同步文本、图片和文件。
+SyncClipboard Kotlin 是面向 Android 的原生 SyncClipboard 客户端，用于在手机与 SyncClipboard Server 之间同步文本、图片和文件。
 
-## 项目说明
+项目使用 Kotlin 与 Jetpack Compose 构建主体界面，并保留轻量原生快速路径。主体应用可以独立完成手动同步；需要后台自动同步时，可按需安装无界面的 LSPosed 系统扩展。
 
-本项目参考 [SyncClipboard Flutter](https://github.com/bling-yshs/sync-clipboard-flutter) 的核心同步逻辑，并保持 `SyncClipboard.json`、内容类型和 SHA-256 算法兼容。
+## 功能
 
-客户端采用原生 Kotlin 和 Android 平台能力实现，目标是提供更好的原生体验与性能。快速设置磁贴使用轻量原生 Activity，不依赖 Flutter 或 Compose 初始化；主界面使用 Jetpack Compose Material 3。
+### 手动同步
 
-## 当前功能
+- 通过快速设置磁贴上传或下载剪贴板内容
+- 上传和下载文本、图片及单个文件
+- 从其他应用分享文本、图片或文件到 SyncClipboard
+- 下载 `Group` 文件组并安全解压
+- 长文本自动改用数据文件传输
+- 显示服务器连接状态和最近一次成功同步
 
-- 首页显示服务器连接状态和上次成功同步时间
-- 多服务器方案的新增、编辑和切换
-- 上传和下载快速设置磁贴
-- 文本上传、下载及系统剪贴板写入
-- 超过 10,240 字符的文本以数据文件传输
-- 图片和单个文件上传、下载
-- `Group` ZIP 下载及安全解压
-- 从其他应用通过 Android 分享上传文本、图片或文件
-- HTTP Basic Auth
-- 可选信任自签名 HTTPS 证书
-- SHA-256 内容校验
-- Android 13+ 可在应用内请求添加磁贴
-- 可选的无界面系统扩展，支持后台检测、上传和接收文本
-- 主体应用统一管理系统扩展状态、自动同步设置和卸载入口
+### 自动同步
 
-## 系统扩展
+- 解锁期间自动上传本地剪贴板文本
+- 通过 SignalR 实时接收远端更新
+- 自动接收远端文本、图片和文件
+- 图片与文件分别保存到用户选择的目录
+- 可限制为仅通过 Wi-Fi 自动同步
+- 锁屏后暂停网络连接，解锁后自动恢复
+- 临时断网或等待 Wi-Fi 时保留最新一条普通文本，恢复后继续上传
+- 忽略应用标记的敏感剪贴板内容
+- 用绿、黄、红三种状态区分正常运行、预期等待和同步错误
 
-`system-extension` 是可选的无界面伴生 APK。它只在 SystemUI 中监听剪贴板变化，并通过 Binder 将文本交给主体应用的独立 `:sync` 进程；服务器配置、网络请求和同步记录仍由主体应用管理。
+自动同步是可选功能，需要安装配套系统扩展，并在支持 libxposed API 102 的 LSPosed 环境中为 SystemUI 启用作用域。系统扩展不包含界面、网络请求或独立配置。
 
-系统扩展需要支持 libxposed API 102 的 LSPosed 环境，并在 SystemUI 作用域启用。主体应用只有在收到系统扩展的有效连接后，才允许开启高级自动同步。
+### 服务器与协议
 
-当前高级模式支持文本自动上传，并通过 SyncClipboard Server 的 SignalR 推送实时接收文本；连接建立时会补查一次远端状态，不支持推送或连接失败时最多每 5 分钟检查一次。手机锁定后停止远端连接，解锁后自动重连并补同步。
+- 管理、编辑和切换多个服务器方案
+- 支持 HTTP Basic Auth
+- 可选择信任自签名 HTTPS 证书
+- 兼容 `SyncClipboard.json`、内容类型和 SHA-256 校验规则
+- 支持 SyncClipboard Server 的 SignalR 推送
 
-## 规划
+## 使用方式
 
-当前版本开放首页与设置，后续将逐步加入剪贴板历史、图片与文件自动同步以及自定义保存位置等功能。
+### 主体应用
 
-## 构建
+1. 安装主体 APK。
+2. 在「设置」中添加并选择 SyncClipboard Server。
+3. 使用首页检查服务器连接。
+4. 从快速设置磁贴手动上传／下载，或从其他应用分享到 SyncClipboard。
 
-要求：
+主体应用最低支持 Android 10（API 29）。手动同步不需要 Root、LSPosed 或系统扩展。
 
-- JDK 17
-- Android SDK 35
+### 系统扩展
 
-```bash
-./gradlew test
-./gradlew :app:assembleDebug :system-extension:assembleDebug
-```
+1. 安装与主体应用配套发布的系统扩展 APK。
+2. 在 LSPosed 中启用模块，并将作用域设为 SystemUI。
+3. 按模块管理器要求重新启动设备。
+4. 回到主体应用，在「设置」中确认扩展连接后开启后台自动同步。
 
-构建产物：
+主体应用与系统扩展必须来自同一套正式发布产物。详细设计及安全边界见 [架构说明](docs/architecture.md)。
 
-```text
-app/build/outputs/apk/debug/app-debug.apk
-system-extension/build/outputs/apk/debug/system-extension-debug.apk
-```
+## 技术文档
 
-主体应用可以独立安装。需要高级自动同步时，再安装系统扩展 APK，并在模块管理器中启用。
+- [架构说明](docs/architecture.md)：模块职责、同步链路、网络生命周期和安全边界
+- [构建与发布](docs/build.md)：开发环境、构建命令、签名配置和 GitHub Actions
 
-## 签名
+## 参考项目
 
-本机测试和正式发布统一读取：
+本项目在协议兼容、功能设计和系统扩展方案上参考了以下开源项目：
 
-```text
-%USERPROFILE%\.gradle\syncclipboard-signing.properties
-```
+- [Jeric-X/SyncClipboard](https://github.com/Jeric-X/SyncClipboard)：SyncClipboard 桌面客户端、服务端和协议实现
+- [bling-yshs/sync-clipboard-flutter](https://github.com/bling-yshs/sync-clipboard-flutter)：Flutter 版移动客户端
+- [shaklow/syncclipboard-xposed](https://github.com/shaklow/syncclipboard-xposed)：基于 LSPosed 的 Android 剪贴板同步实现
 
-主体 APK 与系统扩展 APK 使用同一生产证书。签名文件和密码不得提交到仓库；CI 可通过 `SYNC_CLIPBOARD_STORE_FILE`、`SYNC_CLIPBOARD_STORE_PASSWORD`、`SYNC_CLIPBOARD_KEY_ALIAS` 和 `SYNC_CLIPBOARD_KEY_PASSWORD` 环境变量提供签名。缺少生产签名时允许执行 Debug 构建，但 Release 构建会直接失败。
+感谢这些项目及其贡献者。本项目是独立实现，并非上述项目的官方 Android 客户端。
 
-最低支持 Android 10（API 29）。
+## 许可证
+
+本项目采用 [GNU General Public License v3.0](LICENSE)（`GPL-3.0-only`）发布。
