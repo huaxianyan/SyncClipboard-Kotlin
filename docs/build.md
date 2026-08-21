@@ -100,11 +100,11 @@ SYNC_CLIPBOARD_KEY_PASSWORD
 
 ## 模块版本
 
-主体应用和系统扩展分别在以下文件中维护版本号：
+主体应用和系统扩展共用 `gradle.properties` 中的版本定义：
 
-```text
-app/build.gradle.kts
-system-extension/build.gradle.kts
+```properties
+syncClipboard.versionCode=<递增整数>
+syncClipboard.versionName=<版本号>
 ```
 
-发布时应同步更新两处 `versionCode` 和 `versionName`，确保配套产物容易识别。
+发布时只更新这一处，两个模块会生成相同版本的配套 APK。推送 `v*` 标签前，还应创建与标签同名的 `docs/release-notes/<tag>.md`；发布工作流会将该文件作为 GitHub Release 正文，缺失时停止发布。

@@ -29,6 +29,7 @@ jobs:
             system-extension/build/outputs/apk/debug/system-extension-debug.apk
 
   release:
+    needs: android
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
@@ -63,7 +64,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          notes_file="docs/release-notes/$GITHUB_REF_NAME.md"
+          if [[ ! -f "$notes_file" ]]; then
+            echo "Missing release notes: $notes_file" >&2
+            exit 1
+          fi
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --notes-file "$notes_file"
             gh release upload "$GITHUB_REF_NAME" \
               app/build/outputs/apk/release/app-release.apk \
               system-extension/build/outputs/apk/release/system-extension-release.apk \
@@ -72,5 +79,7 @@ jobs:
             gh release create "$GITHUB_REF_NAME" \
               app/build/outputs/apk/release/app-release.apk \
               system-extension/build/outputs/apk/release/system-extension-release.apk \
-              --verify-tag --generate-notes
+              --verify-tag \
+              --title "SyncClipboard Kotlin $GITHUB_REF_NAME" \
+              --notes-file "$notes_file"
           fi
