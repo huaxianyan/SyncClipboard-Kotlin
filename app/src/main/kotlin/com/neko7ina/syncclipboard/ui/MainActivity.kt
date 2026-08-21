@@ -208,13 +208,11 @@ private fun SyncClipboardApp(
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val repository = remember { SettingsRepository(context.applicationContext) }
-    var server by remember { mutableStateOf(repository.loadServer()) }
+    var serverProfilesLoaded by remember { mutableStateOf(false) }
+    var serverCredentialsUnavailable by remember { mutableStateOf(false) }
+    var server by remember { mutableStateOf<ServerConfig?>(null) }
     var checkRequest by remember { mutableIntStateOf(0) }
-    var connectionStatus by remember {
-        mutableStateOf(
-            if (server == null) ConnectionStatus.NOT_CONFIGURED else ConnectionStatus.CHECKING,
-        )
-    }
+    var connectionStatus by remember { mutableStateOf(ConnectionStatus.LOADING) }
     var connectionFailure by remember { mutableStateOf<SyncFailureKind?>(null) }
     val extensionController = remember {
         SystemExtensionController(context.applicationContext) { extensionState = it }
@@ -225,7 +223,20 @@ private fun SyncClipboardApp(
         onDispose(extensionController::stop)
     }
 
-    LaunchedEffect(server, checkRequest) {
+    LaunchedEffect(repository) {
+        val loaded = withContext(Dispatchers.IO) { repository.loadServerProfilesResult() }
+        serverCredentialsUnavailable = loaded.credentialsUnavailable
+        server = loaded.profiles.activeServer
+        serverProfilesLoaded = true
+    }
+
+    LaunchedEffect(server, checkRequest, serverCredentialsUnavailable, serverProfilesLoaded) {
+        if (!serverProfilesLoaded) return@LaunchedEffect
+        if (serverCredentialsUnavailable) {
+            connectionStatus = ConnectionStatus.CREDENTIALS_UNAVAILABLE
+            connectionFailure = null
+            return@LaunchedEffect
+        }
         val checkedServer = server
         if (checkedServer == null) {
             connectionStatus = ConnectionStatus.NOT_CONFIGURED
@@ -250,6 +261,8 @@ private fun SyncClipboardApp(
     }
 
     fun updateServer(updatedServer: ServerConfig?) {
+        serverProfilesLoaded = true
+        serverCredentialsUnavailable = false
         server = updatedServer
         checkRequest++
     }
@@ -296,10 +309,12 @@ private fun SyncClipboardApp(
 }
 
 private enum class ConnectionStatus {
+    LOADING,
     NOT_CONFIGURED,
     CHECKING,
     CONNECTED,
     FAILED,
+    CREDENTIALS_UNAVAILABLE,
 }
 
 @Composable
@@ -339,20 +354,27 @@ private fun ConnectionCard(
 ) {
     val statusColor = when (status) {
         ConnectionStatus.CONNECTED -> MaterialTheme.colorScheme.tertiary
-        ConnectionStatus.FAILED -> MaterialTheme.colorScheme.error
+        ConnectionStatus.LOADING -> warningIndicatorColor()
+        ConnectionStatus.FAILED,
+        ConnectionStatus.CREDENTIALS_UNAVAILABLE -> MaterialTheme.colorScheme.error
         ConnectionStatus.CHECKING -> warningIndicatorColor()
         ConnectionStatus.NOT_CONFIGURED -> MaterialTheme.colorScheme.outline
     }
     val title = when (status) {
         ConnectionStatus.CONNECTED -> "连接正常"
+        ConnectionStatus.LOADING -> "正在读取服务器配置"
         ConnectionStatus.FAILED -> syncFailureTitle(failure, "服务器检查失败")
+        ConnectionStatus.CREDENTIALS_UNAVAILABLE -> "服务器凭据无法读取"
         ConnectionStatus.CHECKING -> "正在检查连接"
         ConnectionStatus.NOT_CONFIGURED -> "尚未配置服务器"
     }
     val detail = when (status) {
         ConnectionStatus.CONNECTED,
         ConnectionStatus.CHECKING -> server?.normalizedUrl.orEmpty()
+        ConnectionStatus.LOADING -> "请稍候。"
         ConnectionStatus.FAILED -> "${syncFailureAction(failure)}，然后重试。"
+        ConnectionStatus.CREDENTIALS_UNAVAILABLE ->
+            "请在设置中重新添加服务器方案。"
         ConnectionStatus.NOT_CONFIGURED -> "请先前往设置填写服务器信息。"
     }
 
@@ -409,7 +431,8 @@ private fun AutomaticSyncCard(
     val failed = settings.enabled && (
         !extensionReady ||
             runtimeState == AutomaticSyncRuntimeState.ERROR ||
-            runtimeState == AutomaticSyncRuntimeState.SERVER_NOT_CONFIGURED
+            runtimeState == AutomaticSyncRuntimeState.SERVER_NOT_CONFIGURED ||
+            runtimeState == AutomaticSyncRuntimeState.SERVER_CREDENTIALS_UNAVAILABLE
         )
     val title = when {
         !settings.enabled -> "当前使用手动同步"
@@ -422,6 +445,8 @@ private fun AutomaticSyncCard(
         runtimeState == AutomaticSyncRuntimeState.WAITING_FOR_UNLOCK -> "等待设备解锁"
         runtimeState == AutomaticSyncRuntimeState.CONNECTING -> "正在连接自动同步"
         runtimeState == AutomaticSyncRuntimeState.SERVER_NOT_CONFIGURED -> "尚未配置同步服务器"
+        runtimeState == AutomaticSyncRuntimeState.SERVER_CREDENTIALS_UNAVAILABLE ->
+            "服务器凭据无法读取"
         runtimeState == AutomaticSyncRuntimeState.ERROR ->
             syncFailureTitle(extensionState.automaticSyncFailure, "自动同步遇到问题")
         else -> "正在读取自动同步状态"
@@ -450,6 +475,8 @@ private fun AutomaticSyncCard(
             "正在连接服务器，成功后将自动继续。"
         runtimeState == AutomaticSyncRuntimeState.SERVER_NOT_CONFIGURED ->
             "请先在设置中添加并选择服务器。"
+        runtimeState == AutomaticSyncRuntimeState.SERVER_CREDENTIALS_UNAVAILABLE ->
+            "请在设置中重新添加服务器方案。"
         runtimeState == AutomaticSyncRuntimeState.ERROR ->
             "${syncFailureAction(extensionState.automaticSyncFailure)}。自动同步会继续重试。"
         else -> "请稍候。"
@@ -574,7 +601,9 @@ private fun SettingsPage(
     val repository = remember { SettingsRepository(context.applicationContext) }
     val scope = rememberCoroutineScope()
 
-    var profiles by remember { mutableStateOf(repository.loadServerProfiles()) }
+    var profiles by remember { mutableStateOf(ServerProfiles(emptyList(), null)) }
+    var serverProfilesLoaded by remember { mutableStateOf(false) }
+    var serverCredentialsUnavailable by remember { mutableStateOf(false) }
     var editorMode by rememberSaveable { mutableStateOf<ServerEditorMode?>(null) }
     var displayedEditorMode by rememberSaveable { mutableStateOf<ServerEditorMode?>(null) }
     var serverId by rememberSaveable { mutableStateOf("") }
@@ -590,6 +619,13 @@ private fun SettingsPage(
     var showUninstallConfirmation by rememberSaveable { mutableStateOf(false) }
     var serverPendingDeletion by remember { mutableStateOf<ServerConfig?>(null) }
     var showLicense by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(repository) {
+        val loaded = withContext(Dispatchers.IO) { repository.loadServerProfilesResult() }
+        profiles = loaded.profiles
+        serverCredentialsUnavailable = loaded.credentialsUnavailable
+        serverProfilesLoaded = true
+    }
 
     fun openEditor(mode: ServerEditorMode) {
         val source = profiles.activeServer.takeIf { mode == ServerEditorMode.EDIT }
@@ -614,6 +650,8 @@ private fun SettingsPage(
     ).also { it.validate() }
 
     fun applyServerProfiles(updatedProfiles: ServerProfiles) {
+        serverProfilesLoaded = true
+        serverCredentialsUnavailable = false
         profiles = updatedProfiles
         onServerChanged(updatedProfiles.activeServer)
         extensionController.reloadConfiguration()
@@ -786,6 +824,8 @@ private fun SettingsPage(
         )
         ServerProfilesCard(
             profiles = profiles,
+            loaded = serverProfilesLoaded,
+            credentialsUnavailable = serverCredentialsUnavailable,
             editorOpen = editorMode != null,
             onSelect = { server ->
                 scope.launch {
@@ -935,6 +975,8 @@ private fun PageColumn(
 @Composable
 private fun ServerProfilesCard(
     profiles: ServerProfiles,
+    loaded: Boolean,
+    credentialsUnavailable: Boolean,
     editorOpen: Boolean,
     onSelect: (ServerConfig) -> Unit,
     onAdd: () -> Unit,
@@ -944,6 +986,13 @@ private fun ServerProfilesCard(
     val activeServer = profiles.activeServer
 
     SectionCard(title = "服务器方案") {
+        if (credentialsUnavailable) {
+            Text(
+                "服务器凭据无法读取。重新添加服务器方案后可继续同步。",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -952,11 +1001,15 @@ private fun ServerProfilesCard(
             Box(modifier = Modifier.weight(1f)) {
                 OutlinedButton(
                     onClick = { menuExpanded = true },
-                    enabled = profiles.servers.isNotEmpty() && !editorOpen,
+                    enabled = loaded && profiles.servers.isNotEmpty() && !editorOpen,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
-                        text = activeServer?.displayName ?: "暂无方案",
+                        text = when {
+                            !loaded -> "正在读取"
+                            activeServer != null -> activeServer.displayName
+                            else -> "暂无方案"
+                        },
                         maxLines = 1,
                     )
                 }
@@ -977,7 +1030,7 @@ private fun ServerProfilesCard(
                     }
                 }
             }
-            FilledTonalButton(onClick = onAdd, enabled = !editorOpen) {
+            FilledTonalButton(onClick = onAdd, enabled = loaded && !editorOpen) {
                 Text("新增")
             }
             FilledTonalButton(

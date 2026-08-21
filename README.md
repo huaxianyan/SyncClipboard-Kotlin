@@ -38,7 +38,8 @@ SyncClipboard Kotlin 是面向 Android 的原生 SyncClipboard 客户端，用�
 
 ### 服务器与协议
 
-- 管理、编辑和切换多个服务器方案
+- 管理、编辑、切换和删除多个服务器方案
+- 使用 Android Keystore 加密保存服务器方案和登录凭据
 - 支持 HTTP Basic Auth
 - 可选择信任自签名 HTTPS 证书
 - 兼容 `SyncClipboard.json`、内容类型和 SHA-256 校验规则

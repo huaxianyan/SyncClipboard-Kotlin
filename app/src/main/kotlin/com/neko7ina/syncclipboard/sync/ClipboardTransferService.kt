@@ -205,11 +205,17 @@ class ClipboardTransferService(private val context: Context) {
     }
 
     private fun client(): SyncClipboardClient {
-        val config = SettingsRepository(context).loadServer()
-            ?: throw SyncException(
-                "尚未配置服务器，请先在应用设置中添加服务器",
+        val profiles = SettingsRepository(context).loadServerProfilesResult()
+        if (profiles.credentialsUnavailable) {
+            throw SyncException(
+                "服务器凭据无法读取，请在应用设置中重新添加服务器方案",
                 failureKind = SyncFailureKind.SERVER,
             )
+        }
+        val config = profiles.profiles.activeServer ?: throw SyncException(
+            "尚未配置服务器，请先在应用设置中添加服务器",
+            failureKind = SyncFailureKind.SERVER,
+        )
         return SyncClipboardClient(config)
     }
 

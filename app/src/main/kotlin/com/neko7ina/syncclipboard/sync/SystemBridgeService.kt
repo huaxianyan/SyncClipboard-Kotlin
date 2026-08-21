@@ -412,7 +412,11 @@ class SystemBridgeService : Service() {
     private fun resolveAutomaticSyncState(): Int {
         val settings = repository.loadAdvancedSyncSettings()
         if (!settings.enabled) return BridgeContract.AUTOMATIC_SYNC_DISABLED
-        if (repository.loadServer() == null) {
+        val serverProfiles = repository.loadServerProfilesResult()
+        if (serverProfiles.credentialsUnavailable) {
+            return BridgeContract.AUTOMATIC_SYNC_SERVER_CREDENTIALS_UNAVAILABLE
+        }
+        if (serverProfiles.profiles.activeServer == null) {
             return BridgeContract.AUTOMATIC_SYNC_SERVER_NOT_CONFIGURED
         }
         if (!deviceUnlocked) return BridgeContract.AUTOMATIC_SYNC_WAITING_FOR_UNLOCK

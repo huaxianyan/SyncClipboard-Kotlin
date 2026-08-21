@@ -125,6 +125,8 @@ class SystemExtensionController(
         BridgeContract.AUTOMATIC_SYNC_ERROR -> AutomaticSyncRuntimeState.ERROR
         BridgeContract.AUTOMATIC_SYNC_SERVER_NOT_CONFIGURED ->
             AutomaticSyncRuntimeState.SERVER_NOT_CONFIGURED
+        BridgeContract.AUTOMATIC_SYNC_SERVER_CREDENTIALS_UNAVAILABLE ->
+            AutomaticSyncRuntimeState.SERVER_CREDENTIALS_UNAVAILABLE
         else -> AutomaticSyncRuntimeState.UNKNOWN
     }
 
@@ -172,6 +174,7 @@ enum class AutomaticSyncRuntimeState {
     CONNECTING,
     ERROR,
     SERVER_NOT_CONFIGURED,
+    SERVER_CREDENTIALS_UNAVAILABLE,
 }
 
 enum class SystemExtensionStatus {

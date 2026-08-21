@@ -40,6 +40,11 @@ data class ServerProfiles(
     }
 }
 
+data class ServerProfilesLoadResult(
+    val profiles: ServerProfiles,
+    val credentialsUnavailable: Boolean = false,
+)
+
 data class AdvancedSyncSettings(
     val enabled: Boolean = false,
     val wifiOnly: Boolean = false,

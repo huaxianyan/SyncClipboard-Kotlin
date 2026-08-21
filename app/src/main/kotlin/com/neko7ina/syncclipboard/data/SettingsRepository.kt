@@ -25,26 +25,26 @@ class SettingsRepository(
         PREFERENCES_NAME,
         if (reloadForAnotherProcess) Context.MODE_MULTI_PROCESS else Context.MODE_PRIVATE,
     )
+    private val profilesCryptor = ServerProfilesCryptor(AndroidServerProfilesKey::getOrCreate)
+
+    @Volatile
+    private var cachedServerProfiles: ServerProfilesLoadResult? = null
 
     @Synchronized
-    fun loadServerProfiles(): ServerProfiles {
-        preferences.getString(KEY_SERVER_PROFILES, null)?.let { stored ->
-            return runCatching { decodeProfiles(stored) }.getOrDefault(ServerProfiles(emptyList(), null))
+    fun loadServerProfilesResult(): ServerProfilesLoadResult {
+        cachedServerProfiles?.let { return it }
+        val loaded = when {
+            preferences.contains(KEY_ENCRYPTED_SERVER_PROFILES) -> loadEncryptedProfiles()
+            preferences.contains(KEY_SERVER_PROFILES) -> migratePlaintextProfiles(
+                preferences.getString(KEY_SERVER_PROFILES, null).orEmpty(),
+            )
+            else -> migrateLegacyServer()
         }
-
-        val legacyUrl = preferences.getString(KEY_URL, null)?.trim().orEmpty()
-        if (legacyUrl.isEmpty()) return ServerProfiles(emptyList(), null)
-
-        val migrated = ServerConfig(
-            id = UUID.randomUUID().toString(),
-            name = "",
-            url = legacyUrl,
-            username = preferences.getString(KEY_USERNAME, "").orEmpty(),
-            password = preferences.getString(KEY_PASSWORD, "").orEmpty(),
-            trustInsecureCertificate = preferences.getBoolean(KEY_TRUST_INSECURE, false),
-        )
-        return ServerProfiles(listOf(migrated), migrated.id).also(::persistMigratedProfiles)
+        cachedServerProfiles = loaded
+        return loaded
     }
+
+    fun loadServerProfiles(): ServerProfiles = loadServerProfilesResult().profiles
 
     fun loadServer(): ServerConfig? = loadServerProfiles().activeServer
 
@@ -148,27 +148,62 @@ class SettingsRepository(
         value: String?,
     ): SharedPreferences.Editor = if (value == null) remove(key) else putString(key, value)
 
-    private fun persistMigratedProfiles(profiles: ServerProfiles) {
-        preferences.edit()
-            .putString(KEY_SERVER_PROFILES, encodeProfiles(profiles))
+    private fun loadEncryptedProfiles(): ServerProfilesLoadResult = runCatching {
+        val encrypted = preferences.getString(KEY_ENCRYPTED_SERVER_PROFILES, null)
+            ?: error("Encrypted server profiles are missing")
+        ServerProfilesLoadResult(decodeProfiles(profilesCryptor.decrypt(encrypted)))
+    }.getOrElse { unavailableServerProfiles() }
+
+    private fun migratePlaintextProfiles(raw: String): ServerProfilesLoadResult = runCatching {
+        val profiles = decodeProfiles(raw)
+        persistProfiles(profiles, resetRemoteHash = false)
+        ServerProfilesLoadResult(profiles)
+    }.getOrElse { unavailableServerProfiles() }
+
+    private fun migrateLegacyServer(): ServerProfilesLoadResult {
+        val legacyUrl = preferences.getString(KEY_URL, null)?.trim().orEmpty()
+        if (legacyUrl.isEmpty()) return ServerProfilesLoadResult(ServerProfiles(emptyList(), null))
+        return runCatching {
+            val migrated = ServerConfig(
+                id = UUID.randomUUID().toString(),
+                name = "",
+                url = legacyUrl,
+                username = preferences.getString(KEY_USERNAME, "").orEmpty(),
+                password = preferences.getString(KEY_PASSWORD, "").orEmpty(),
+                trustInsecureCertificate = preferences.getBoolean(KEY_TRUST_INSECURE, false),
+            )
+            val profiles = ServerProfiles(listOf(migrated), migrated.id)
+            persistProfiles(profiles, resetRemoteHash = false)
+            ServerProfilesLoadResult(profiles)
+        }.getOrElse { unavailableServerProfiles() }
+    }
+
+    private fun unavailableServerProfiles() = ServerProfilesLoadResult(
+        profiles = ServerProfiles(emptyList(), null),
+        credentialsUnavailable = true,
+    )
+
+    private fun persistProfiles(
+        profiles: ServerProfiles,
+        resetRemoteHash: Boolean = true,
+    ) {
+        val encrypted = runCatching { profilesCryptor.encrypt(encodeProfiles(profiles)) }
+            .getOrElse {
+                throw IllegalStateException(
+                    "无法安全保存服务器配置，请重新启动设备后重试",
+                    it,
+                )
+            }
+        val editor = preferences.edit()
+            .putString(KEY_ENCRYPTED_SERVER_PROFILES, encrypted)
+            .remove(KEY_SERVER_PROFILES)
             .remove(KEY_URL)
             .remove(KEY_USERNAME)
             .remove(KEY_PASSWORD)
             .remove(KEY_TRUST_INSECURE)
-            .apply()
-    }
-
-    private fun persistProfiles(profiles: ServerProfiles) {
-        check(
-            preferences.edit()
-                .putString(KEY_SERVER_PROFILES, encodeProfiles(profiles))
-                .remove(KEY_URL)
-                .remove(KEY_USERNAME)
-                .remove(KEY_PASSWORD)
-                .remove(KEY_TRUST_INSECURE)
-                .remove(KEY_LAST_AUTOMATIC_REMOTE_HASH)
-                .commit(),
-        ) { "保存服务器配置失败" }
+        if (resetRemoteHash) editor.remove(KEY_LAST_AUTOMATIC_REMOTE_HASH)
+        check(editor.commit()) { "保存服务器配置失败，请检查设备存储空间后重试" }
+        cachedServerProfiles = ServerProfilesLoadResult(profiles)
     }
 
     private fun encodeProfiles(profiles: ServerProfiles): String = JSONObject().apply {
@@ -213,6 +248,7 @@ class SettingsRepository(
 
     private companion object {
         const val PREFERENCES_NAME = "sync_clipboard_settings"
+        const val KEY_ENCRYPTED_SERVER_PROFILES = "server_profiles_encrypted_v1"
         const val KEY_SERVER_PROFILES = "server_profiles"
         const val KEY_ACTIVE_SERVER_ID = "activeServerId"
         const val KEY_SERVERS = "servers"
