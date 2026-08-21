@@ -2,6 +2,7 @@ package com.neko7ina.syncclipboard.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -152,13 +153,19 @@ class SettingsRepository(
         val encrypted = preferences.getString(KEY_ENCRYPTED_SERVER_PROFILES, null)
             ?: error("Encrypted server profiles are missing")
         ServerProfilesLoadResult(decodeProfiles(profilesCryptor.decrypt(encrypted)))
-    }.getOrElse { unavailableServerProfiles() }
+    }.getOrElse {
+        Log.e(TAG, "Unable to decrypt server profiles", it)
+        unavailableServerProfiles()
+    }
 
     private fun migratePlaintextProfiles(raw: String): ServerProfilesLoadResult = runCatching {
         val profiles = decodeProfiles(raw)
         persistProfiles(profiles, resetRemoteHash = false)
         ServerProfilesLoadResult(profiles)
-    }.getOrElse { unavailableServerProfiles() }
+    }.getOrElse {
+        Log.e(TAG, "Unable to migrate server profiles", it)
+        unavailableServerProfiles()
+    }
 
     private fun migrateLegacyServer(): ServerProfilesLoadResult {
         val legacyUrl = preferences.getString(KEY_URL, null)?.trim().orEmpty()
@@ -175,7 +182,10 @@ class SettingsRepository(
             val profiles = ServerProfiles(listOf(migrated), migrated.id)
             persistProfiles(profiles, resetRemoteHash = false)
             ServerProfilesLoadResult(profiles)
-        }.getOrElse { unavailableServerProfiles() }
+        }.getOrElse {
+            Log.e(TAG, "Unable to migrate legacy server profile", it)
+            unavailableServerProfiles()
+        }
     }
 
     private fun unavailableServerProfiles() = ServerProfilesLoadResult(
@@ -189,6 +199,7 @@ class SettingsRepository(
     ) {
         val encrypted = runCatching { profilesCryptor.encrypt(encodeProfiles(profiles)) }
             .getOrElse {
+                Log.e(TAG, "Unable to encrypt server profiles", it)
                 throw IllegalStateException(
                     "无法安全保存服务器配置，请重新启动设备后重试",
                     it,
@@ -247,6 +258,7 @@ class SettingsRepository(
     }
 
     private companion object {
+        const val TAG = "ServerProfilesStorage"
         const val PREFERENCES_NAME = "sync_clipboard_settings"
         const val KEY_ENCRYPTED_SERVER_PROFILES = "server_profiles_encrypted_v1"
         const val KEY_SERVER_PROFILES = "server_profiles"

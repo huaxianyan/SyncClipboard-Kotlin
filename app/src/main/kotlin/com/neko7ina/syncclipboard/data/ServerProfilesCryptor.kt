@@ -3,7 +3,6 @@ package com.neko7ina.syncclipboard.data
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import java.security.KeyStore
-import java.security.SecureRandom
 import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -12,14 +11,14 @@ import javax.crypto.spec.GCMParameterSpec
 
 internal class ServerProfilesCryptor(
     private val keyProvider: () -> SecretKey,
-    private val secureRandom: SecureRandom = SecureRandom(),
 ) {
     fun encrypt(plaintext: String): String {
-        val iv = ByteArray(IV_SIZE_BYTES).also(secureRandom::nextBytes)
         val cipher = Cipher.getInstance(TRANSFORMATION).apply {
-            init(Cipher.ENCRYPT_MODE, keyProvider(), GCMParameterSpec(TAG_SIZE_BITS, iv))
+            init(Cipher.ENCRYPT_MODE, keyProvider())
             updateAAD(ASSOCIATED_DATA)
         }
+        val iv = cipher.iv
+        require(iv.size == IV_SIZE_BYTES) { "Invalid generated encryption IV" }
         val ciphertext = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
         val encoder = Base64.getEncoder()
         return listOf(
