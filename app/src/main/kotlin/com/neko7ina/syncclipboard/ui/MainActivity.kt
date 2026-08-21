@@ -204,6 +204,14 @@ private fun SyncClipboardApp(
     var extensionState by remember { mutableStateOf(SystemExtensionState(SystemExtensionStatus.NOT_INSTALLED)) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val repository = remember { SettingsRepository(context.applicationContext) }
+    var server by remember { mutableStateOf(repository.loadServer()) }
+    var checkRequest by remember { mutableIntStateOf(0) }
+    var connectionStatus by remember {
+        mutableStateOf(
+            if (server == null) ConnectionStatus.NOT_CONFIGURED else ConnectionStatus.CHECKING,
+        )
+    }
     val extensionController = remember {
         SystemExtensionController(context.applicationContext) { extensionState = it }
     }
@@ -213,8 +221,28 @@ private fun SyncClipboardApp(
         onDispose(extensionController::stop)
     }
 
+    LaunchedEffect(server, checkRequest) {
+        val checkedServer = server
+        if (checkedServer == null) {
+            connectionStatus = ConnectionStatus.NOT_CONFIGURED
+            return@LaunchedEffect
+        }
+        connectionStatus = ConnectionStatus.CHECKING
+        connectionStatus = runCatching {
+            withContext(Dispatchers.IO) { SyncClipboardClient(checkedServer).testConnection() }
+        }.fold(
+            onSuccess = { ConnectionStatus.CONNECTED },
+            onFailure = { ConnectionStatus.FAILED },
+        )
+    }
+
     fun showMessage(message: String) {
         scope.launch { snackbar.showSnackbar(message) }
+    }
+
+    fun updateServer(updatedServer: ServerConfig?) {
+        server = updatedServer
+        checkRequest++
     }
 
     Scaffold(
@@ -238,13 +266,20 @@ private fun SyncClipboardApp(
         snackbarHost = { SnackbarHost(snackbar) },
     ) { contentPadding ->
         when (currentPage) {
-            AppPage.HOME -> DashboardPage(contentPadding, extensionState)
+            AppPage.HOME -> DashboardPage(
+                contentPadding = contentPadding,
+                extensionState = extensionState,
+                server = server,
+                connectionStatus = connectionStatus,
+                onRetryConnection = { checkRequest++ },
+            )
             AppPage.SETTINGS -> SettingsPage(
                 contentPadding,
                 requestTile,
                 extensionState,
                 extensionController,
                 ::showMessage,
+                ::updateServer,
             )
         }
     }
@@ -261,40 +296,22 @@ private enum class ConnectionStatus {
 private fun DashboardPage(
     contentPadding: PaddingValues,
     extensionState: SystemExtensionState,
+    server: ServerConfig?,
+    connectionStatus: ConnectionStatus,
+    onRetryConnection: () -> Unit,
 ) {
     val context = LocalContext.current
     val repository = remember { SettingsRepository(context.applicationContext) }
-    val server = remember { repository.loadServer() }
     val lastSync = remember(extensionState.lastSuccessfulSyncTime) { repository.loadLastSync() }
     val advancedSync = remember(extensionState.status, extensionState.automaticSyncState) {
         repository.loadAdvancedSyncSettings()
-    }
-    var checkRequest by remember { mutableIntStateOf(0) }
-    var connectionStatus by remember {
-        mutableStateOf(
-            if (server == null) ConnectionStatus.NOT_CONFIGURED else ConnectionStatus.CHECKING,
-        )
-    }
-
-    LaunchedEffect(server, checkRequest) {
-        if (server == null) {
-            connectionStatus = ConnectionStatus.NOT_CONFIGURED
-            return@LaunchedEffect
-        }
-        connectionStatus = ConnectionStatus.CHECKING
-        connectionStatus = runCatching {
-            withContext(Dispatchers.IO) { SyncClipboardClient(server).testConnection() }
-        }.fold(
-            onSuccess = { ConnectionStatus.CONNECTED },
-            onFailure = { ConnectionStatus.FAILED },
-        )
     }
 
     PageColumn(contentPadding) {
         ConnectionCard(
             status = connectionStatus,
             server = server,
-            onRetry = { checkRequest++ },
+            onRetry = onRetryConnection,
         )
         AutomaticSyncCard(advancedSync, extensionState)
         LastSyncCard(lastSync)
@@ -310,7 +327,7 @@ private fun ConnectionCard(
     val statusColor = when (status) {
         ConnectionStatus.CONNECTED -> MaterialTheme.colorScheme.tertiary
         ConnectionStatus.FAILED -> MaterialTheme.colorScheme.error
-        ConnectionStatus.CHECKING -> MaterialTheme.colorScheme.primary
+        ConnectionStatus.CHECKING -> warningIndicatorColor()
         ConnectionStatus.NOT_CONFIGURED -> MaterialTheme.colorScheme.outline
     }
     val title = when (status) {
@@ -320,9 +337,9 @@ private fun ConnectionCard(
         ConnectionStatus.NOT_CONFIGURED -> "尚未配置服务器"
     }
     val detail = when (status) {
-        ConnectionStatus.CONNECTED -> server?.normalizedUrl.orEmpty()
+        ConnectionStatus.CONNECTED,
+        ConnectionStatus.CHECKING -> server?.normalizedUrl.orEmpty()
         ConnectionStatus.FAILED -> "请检查网络或服务器设置后重试。"
-        ConnectionStatus.CHECKING -> "正在连接服务器……"
         ConnectionStatus.NOT_CONFIGURED -> "请先前往设置填写服务器信息。"
     }
 
@@ -332,15 +349,11 @@ private fun ConnectionCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            if (status == ConnectionStatus.CHECKING) {
-                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 3.dp)
-            } else {
-                Box(
-                    modifier = Modifier
-                        .size(16.dp)
-                        .background(statusColor, CircleShape),
-                )
-            }
+            Box(
+                modifier = Modifier
+                    .size(16.dp)
+                    .background(statusColor, CircleShape),
+            )
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -427,10 +440,9 @@ private fun AutomaticSyncCard(
             "请检查服务器、网络和保存目录设置。自动同步会继续重试。"
         else -> "请稍候。"
     }
-    val warningColor = if (isSystemInDarkTheme()) Color(0xFFFFD54F) else Color(0xFFF9A825)
     val statusColor = when {
         running -> MaterialTheme.colorScheme.tertiary
-        warning -> warningColor
+        warning -> warningIndicatorColor()
         failed -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.outline
     }
@@ -468,6 +480,10 @@ private fun AutomaticSyncCard(
         }
     }
 }
+
+@Composable
+private fun warningIndicatorColor(): Color =
+    if (isSystemInDarkTheme()) Color(0xFFFFD54F) else Color(0xFFF9A825)
 
 @Composable
 private fun LastSyncCard(lastSync: LastSync?) {
@@ -516,6 +532,7 @@ private fun SettingsPage(
     extensionState: SystemExtensionState,
     extensionController: SystemExtensionController,
     showMessage: (String) -> Unit,
+    onServerChanged: (ServerConfig?) -> Unit,
 ) {
     val context = LocalContext.current
     val repository = remember { SettingsRepository(context.applicationContext) }
@@ -689,8 +706,10 @@ private fun SettingsPage(
                 scope.launch {
                     runCatching {
                         withContext(Dispatchers.IO) { repository.selectServer(server.id) }
-                    }.onSuccess { profiles = it }
-                        .onFailure { showMessage(it.message ?: "切换服务器失败，请重试") }
+                    }.onSuccess {
+                        profiles = it
+                        onServerChanged(it.activeServer)
+                    }.onFailure { showMessage(it.message ?: "切换服务器失败，请重试") }
                 }
             },
             onAdd = { openEditor(ServerEditorMode.ADD) },
@@ -730,6 +749,7 @@ private fun SettingsPage(
                                 withContext(Dispatchers.IO) { repository.saveServer(config) }
                             }.onSuccess {
                                 profiles = it
+                                onServerChanged(it.activeServer)
                                 editorMode = null
                                 showMessage(
                                     if (mode == ServerEditorMode.ADD) {
