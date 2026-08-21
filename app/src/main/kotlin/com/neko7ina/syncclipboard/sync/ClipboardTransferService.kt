@@ -119,8 +119,14 @@ class ClipboardTransferService(private val context: Context) {
         treeUri: String?,
         sourceHash: String,
     ): String {
-        val destination = treeUri ?: throw SyncException("请先选择对应的保存目录")
-        val name = payload.dataName ?: throw SyncException("远端文件缺少文件名")
+        val destination = treeUri ?: throw SyncException(
+            "请先选择对应的保存目录",
+            failureKind = SyncFailureKind.STORAGE,
+        )
+        val name = payload.dataName ?: throw SyncException(
+            "远端文件缺少文件名",
+            failureKind = SyncFailureKind.CONTENT,
+        )
         client().readFile(name) { input ->
             SafFileStore(context).writeVerified(
                 treeUriValue = destination,
@@ -141,7 +147,10 @@ class ClipboardTransferService(private val context: Context) {
     ): String = when (payload.type) {
         ClipboardType.TEXT -> {
             val text = if (payload.hasData) {
-                val name = payload.dataName ?: throw SyncException("文本数据缺少文件名")
+                val name = payload.dataName ?: throw SyncException(
+                    "文本数据缺少文件名",
+                    failureKind = SyncFailureKind.CONTENT,
+                )
                 client.getFile(name).toString(Charsets.UTF_8)
             } else {
                 payload.text
@@ -218,13 +227,23 @@ class ClipboardTransferService(private val context: Context) {
     private fun verifyTextHash(expected: String?, text: String) {
         if (expected.isNullOrBlank()) return
         val actual = PayloadFactory.sha256(text.toByteArray(Charsets.UTF_8))
-        if (!expected.equals(actual, ignoreCase = true)) throw SyncException("文本校验失败，内容可能不完整")
+        if (!expected.equals(actual, ignoreCase = true)) {
+            throw SyncException(
+                "文本校验失败，内容可能不完整",
+                failureKind = SyncFailureKind.CONTENT,
+            )
+        }
     }
 
     private fun verifyFileHash(expected: String?, name: String, bytes: ByteArray) {
         if (expected.isNullOrBlank()) return
         val actual = PayloadFactory.file(name, bytes, null).payload.hash
-        if (!expected.equals(actual, ignoreCase = true)) throw SyncException("文件校验失败，内容可能已损坏")
+        if (!expected.equals(actual, ignoreCase = true)) {
+            throw SyncException(
+                "文件校验失败，内容可能已损坏",
+                failureKind = SyncFailureKind.CONTENT,
+            )
+        }
     }
 
     private fun saveDownload(name: String, bytes: ByteArray, mimeType: String) {

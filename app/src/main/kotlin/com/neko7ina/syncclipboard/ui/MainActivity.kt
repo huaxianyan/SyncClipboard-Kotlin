@@ -95,6 +95,7 @@ import com.neko7ina.syncclipboard.data.ServerConfig
 import com.neko7ina.syncclipboard.data.ServerProfiles
 import com.neko7ina.syncclipboard.data.SettingsRepository
 import com.neko7ina.syncclipboard.data.SyncDirection
+import com.neko7ina.syncclipboard.extension.AutomaticSyncError
 import com.neko7ina.syncclipboard.extension.AutomaticSyncRuntimeState
 import com.neko7ina.syncclipboard.extension.SystemExtensionController
 import com.neko7ina.syncclipboard.extension.SystemExtensionState
@@ -409,7 +410,8 @@ private fun AutomaticSyncCard(
         runtimeState == AutomaticSyncRuntimeState.WAITING_FOR_UNLOCK -> "等待设备解锁"
         runtimeState == AutomaticSyncRuntimeState.CONNECTING -> "正在连接自动同步"
         runtimeState == AutomaticSyncRuntimeState.SERVER_NOT_CONFIGURED -> "尚未配置同步服务器"
-        runtimeState == AutomaticSyncRuntimeState.ERROR -> "自动同步遇到问题"
+        runtimeState == AutomaticSyncRuntimeState.ERROR ->
+            automaticSyncErrorTitle(extensionState.automaticSyncError)
         else -> "正在读取自动同步状态"
     }
     val detail = when {
@@ -437,7 +439,7 @@ private fun AutomaticSyncCard(
         runtimeState == AutomaticSyncRuntimeState.SERVER_NOT_CONFIGURED ->
             "请先在设置中添加并选择服务器。"
         runtimeState == AutomaticSyncRuntimeState.ERROR ->
-            "请检查服务器、网络和保存目录设置。自动同步会继续重试。"
+            automaticSyncErrorDetail(extensionState.automaticSyncError)
         else -> "请稍候。"
     }
     val statusColor = when {
@@ -479,6 +481,28 @@ private fun AutomaticSyncCard(
             )
         }
     }
+}
+
+private fun automaticSyncErrorTitle(error: AutomaticSyncError): String = when (error) {
+    AutomaticSyncError.AUTHENTICATION -> "服务器认证失败"
+    AutomaticSyncError.NETWORK -> "无法连接服务器"
+    AutomaticSyncError.TLS -> "HTTPS 证书验证失败"
+    AutomaticSyncError.SERVER -> "服务器响应异常"
+    AutomaticSyncError.STORAGE -> "文件保存失败"
+    AutomaticSyncError.CONTENT -> "同步内容异常"
+    AutomaticSyncError.NONE,
+    AutomaticSyncError.UNKNOWN -> "自动同步遇到问题"
+}
+
+private fun automaticSyncErrorDetail(error: AutomaticSyncError): String = when (error) {
+    AutomaticSyncError.AUTHENTICATION -> "请在设置中检查用户名和密码。自动同步会继续重试。"
+    AutomaticSyncError.NETWORK -> "请检查网络连接和服务器地址。自动同步会继续重试。"
+    AutomaticSyncError.TLS -> "请检查 HTTPS 证书或自签名证书设置。自动同步会继续重试。"
+    AutomaticSyncError.SERVER -> "请确认服务正在运行且版本兼容。自动同步会继续重试。"
+    AutomaticSyncError.STORAGE -> "请重新选择保存目录并检查可用空间。自动同步会继续重试。"
+    AutomaticSyncError.CONTENT -> "请检查其他设备和服务器版本。自动同步会继续重试。"
+    AutomaticSyncError.NONE,
+    AutomaticSyncError.UNKNOWN -> "请重新检查服务器设置。自动同步会继续重试。"
 }
 
 @Composable

@@ -13,4 +13,5 @@ interface ISyncBridgeService {
     void reloadConfiguration();
     void updateExtensionAvailability(boolean installed);
     int getAutomaticSyncState();
+    int getAutomaticSyncError();
 }

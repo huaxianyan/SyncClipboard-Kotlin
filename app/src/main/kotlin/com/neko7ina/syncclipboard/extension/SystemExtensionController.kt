@@ -76,7 +76,18 @@ class SystemExtensionController(
         val automaticSyncState = runCatching { service?.automaticSyncState }
             .getOrNull()
             .toAutomaticSyncRuntimeState()
-        onStateChanged(SystemExtensionState(status, lastEventTime, lastSyncTime, automaticSyncState))
+        val automaticSyncError = runCatching { service?.automaticSyncError }
+            .getOrNull()
+            .toAutomaticSyncError()
+        onStateChanged(
+            SystemExtensionState(
+                status,
+                lastEventTime,
+                lastSyncTime,
+                automaticSyncState,
+                automaticSyncError,
+            ),
+        )
     }
 
     fun reloadConfiguration() {
@@ -116,6 +127,17 @@ class SystemExtensionController(
         else -> AutomaticSyncRuntimeState.UNKNOWN
     }
 
+    private fun Int?.toAutomaticSyncError(): AutomaticSyncError = when (this) {
+        BridgeContract.AUTOMATIC_SYNC_ERROR_NONE -> AutomaticSyncError.NONE
+        BridgeContract.AUTOMATIC_SYNC_ERROR_AUTHENTICATION -> AutomaticSyncError.AUTHENTICATION
+        BridgeContract.AUTOMATIC_SYNC_ERROR_NETWORK -> AutomaticSyncError.NETWORK
+        BridgeContract.AUTOMATIC_SYNC_ERROR_TLS -> AutomaticSyncError.TLS
+        BridgeContract.AUTOMATIC_SYNC_ERROR_SERVER -> AutomaticSyncError.SERVER
+        BridgeContract.AUTOMATIC_SYNC_ERROR_STORAGE -> AutomaticSyncError.STORAGE
+        BridgeContract.AUTOMATIC_SYNC_ERROR_CONTENT -> AutomaticSyncError.CONTENT
+        else -> AutomaticSyncError.UNKNOWN
+    }
+
     private fun signerCertificates(info: android.content.pm.PackageInfo): Set<String> {
         val signingInfo = info.signingInfo ?: return emptySet()
         val signatures = if (signingInfo.hasMultipleSigners()) {
@@ -136,7 +158,19 @@ data class SystemExtensionState(
     val lastClipboardEventTime: Long = 0L,
     val lastSuccessfulSyncTime: Long = 0L,
     val automaticSyncState: AutomaticSyncRuntimeState = AutomaticSyncRuntimeState.UNKNOWN,
+    val automaticSyncError: AutomaticSyncError = AutomaticSyncError.NONE,
 )
+
+enum class AutomaticSyncError {
+    NONE,
+    AUTHENTICATION,
+    NETWORK,
+    TLS,
+    SERVER,
+    STORAGE,
+    CONTENT,
+    UNKNOWN,
+}
 
 enum class AutomaticSyncRuntimeState {
     UNKNOWN,

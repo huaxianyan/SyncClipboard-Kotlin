@@ -1,6 +1,8 @@
 package com.neko7ina.syncclipboard.sync
 
 import org.json.JSONObject
+import java.io.IOException
+import javax.net.ssl.SSLException
 
 enum class ClipboardType(val wireName: String) {
     TEXT("Text"),
@@ -11,7 +13,10 @@ enum class ClipboardType(val wireName: String) {
     companion object {
         fun fromWireName(value: String): ClipboardType = entries.firstOrNull {
             it.wireName.equals(value, ignoreCase = true)
-        } ?: throw SyncException("服务器返回了未知内容类型：$value")
+        } ?: throw SyncException(
+            "服务器返回了未知内容类型：$value",
+            failureKind = SyncFailureKind.CONTENT,
+        )
     }
 }
 
@@ -56,4 +61,28 @@ data class PreparedUpload(
         get() = !fileName.isNullOrBlank() && bytes != null
 }
 
-class SyncException(message: String, cause: Throwable? = null) : Exception(message, cause)
+enum class SyncFailureKind {
+    AUTHENTICATION,
+    NETWORK,
+    TLS,
+    SERVER,
+    STORAGE,
+    CONTENT,
+    UNKNOWN,
+}
+
+class SyncException(
+    message: String,
+    cause: Throwable? = null,
+    val failureKind: SyncFailureKind = SyncFailureKind.UNKNOWN,
+) : Exception(message, cause)
+
+fun Throwable.toSyncFailureKind(): SyncFailureKind {
+    val causes = generateSequence(this as Throwable?) { it.cause }.toList()
+    causes.filterIsInstance<SyncException>()
+        .firstOrNull { it.failureKind != SyncFailureKind.UNKNOWN }
+        ?.let { return it.failureKind }
+    if (causes.any { it is SSLException }) return SyncFailureKind.TLS
+    if (causes.any { it is IOException }) return SyncFailureKind.NETWORK
+    return SyncFailureKind.UNKNOWN
+}

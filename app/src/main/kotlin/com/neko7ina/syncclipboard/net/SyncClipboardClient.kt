@@ -3,6 +3,8 @@ package com.neko7ina.syncclipboard.net
 import com.neko7ina.syncclipboard.data.ServerConfig
 import com.neko7ina.syncclipboard.sync.ClipboardPayload
 import com.neko7ina.syncclipboard.sync.SyncException
+import com.neko7ina.syncclipboard.sync.SyncFailureKind
+import com.neko7ina.syncclipboard.sync.toSyncFailureKind
 import android.os.SystemClock
 import android.util.Log
 import okhttp3.Call
@@ -16,6 +18,7 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import org.json.JSONException
 import java.io.IOException
 import java.io.InputStream
 import java.net.InetAddress
@@ -76,17 +79,35 @@ class SyncClipboardClient(
             client.newCall(request).execute().use { response ->
                 when (response.code) {
                     in 200..299 -> Unit
-                    401 -> throw SyncException("认证失败：用户名或密码错误")
-                    404 -> throw SyncException("服务器文件不存在：${request.url.encodedPath}")
-                    else -> throw SyncException("服务器请求失败：HTTP ${response.code}")
+                    401 -> throw SyncException(
+                        "认证失败：用户名或密码错误",
+                        failureKind = SyncFailureKind.AUTHENTICATION,
+                    )
+                    404 -> throw SyncException(
+                        "服务器文件不存在：${request.url.encodedPath}",
+                        failureKind = SyncFailureKind.SERVER,
+                    )
+                    else -> throw SyncException(
+                        "服务器请求失败：HTTP ${response.code}",
+                        failureKind = SyncFailureKind.SERVER,
+                    )
                 }
-                val responseBody = response.body ?: throw SyncException("服务器返回了空响应")
+                val responseBody = response.body ?: throw SyncException(
+                    "服务器返回了空响应",
+                    failureKind = SyncFailureKind.SERVER,
+                )
                 return body(responseBody)
             }
         } catch (error: SyncException) {
             throw error
+        } catch (error: JSONException) {
+            throw SyncException(
+                "服务器返回的内容格式无效",
+                error,
+                SyncFailureKind.CONTENT,
+            )
         } catch (error: IOException) {
-            throw SyncException(networkErrorMessage(error), error)
+            throw SyncException(networkErrorMessage(error), error, error.toSyncFailureKind())
         } catch (error: Exception) {
             throw SyncException("请求失败：${error.message ?: error.javaClass.simpleName}", error)
         }

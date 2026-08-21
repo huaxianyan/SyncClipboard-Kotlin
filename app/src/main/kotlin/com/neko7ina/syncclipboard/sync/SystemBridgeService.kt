@@ -60,10 +60,13 @@ class SystemBridgeService : Service() {
     private var signalRConnected = false
 
     @Volatile
-    private var signalRFailed = false
+    private var signalRFailure: SyncFailureKind? = null
 
     @Volatile
-    private var automaticTransferFailed = false
+    private var pendingUploadFailure: SyncFailureKind? = null
+
+    @Volatile
+    private var remoteTransferFailure: SyncFailureKind? = null
 
     @Volatile
     private var pendingClipboardText: String? = null
@@ -172,8 +175,9 @@ class SystemBridgeService : Service() {
             } else if (pendingClipboardText == null) {
                 pendingClipboardText = repository.loadPendingAutomaticText()
             }
-            signalRFailed = false
-            automaticTransferFailed = false
+            signalRFailure = null
+            pendingUploadFailure = null
+            remoteTransferFailure = null
             refreshNetworkAvailability()
             requestPendingTextUpload()
             requestRemoteSyncRestart()
@@ -187,6 +191,11 @@ class SystemBridgeService : Service() {
         override fun getAutomaticSyncState(): Int {
             enforceHostCaller()
             return resolveAutomaticSyncState()
+        }
+
+        override fun getAutomaticSyncError(): Int {
+            enforceHostCaller()
+            return resolveAutomaticSyncError()
         }
     }
 
@@ -280,13 +289,13 @@ class SystemBridgeService : Service() {
             ClipboardTransferService(this).uploadTextIfChanged(text, previousHash)
         }.fold(
             onSuccess = { hash ->
-                automaticTransferFailed = false
+                pendingUploadFailure = null
                 if (hash != null) repository.saveLastAutomaticRemoteHash(hash)
                 clearPendingText(text)
                 true
             },
             onFailure = {
-                automaticTransferFailed = true
+                pendingUploadFailure = it.toSyncFailureKind()
                 Log.w(TAG, "Automatic text upload failed", it)
                 false
             },
@@ -300,7 +309,7 @@ class SystemBridgeService : Service() {
                 remoteSyncJob?.cancel()
                 remoteSyncJob = null
                 signalRConnected = false
-                signalRFailed = false
+                signalRFailure = null
                 if (shouldRunRemoteSync()) {
                     Log.i(TAG, "Remote sync starting")
                     remoteSyncJob = scope.launch { runRemoteSyncLoop() }
@@ -320,7 +329,7 @@ class SystemBridgeService : Service() {
                 if (!shouldRunRemoteSync()) return
                 failureIndex = 0
                 signalRConnected = true
-                signalRFailed = false
+                signalRFailure = null
                 Log.i(TAG, "SignalR connected")
                 transferMutex.withLock { pollRemoteClipboard() }
                 lastFallbackPollAt = SystemClock.elapsedRealtime()
@@ -330,7 +339,7 @@ class SystemBridgeService : Service() {
                 throw error
             } catch (error: Exception) {
                 signalRConnected = false
-                signalRFailed = true
+                signalRFailure = error.toSyncFailureKind()
                 Log.w(TAG, "SignalR unavailable", error)
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastFallbackPollAt >= FALLBACK_POLL_INTERVAL_MILLIS) {
@@ -358,10 +367,10 @@ class SystemBridgeService : Service() {
                             callback.setClipboardText(text, sourceHash)
                         }
                 }.onSuccess { newHash ->
-                    automaticTransferFailed = false
+                    remoteTransferFailure = null
                     if (newHash != null) repository.saveLastAutomaticRemoteHash(newHash)
                 }.onFailure {
-                    automaticTransferFailed = true
+                    remoteTransferFailure = it.toSyncFailureKind()
                     Log.w(TAG, "Automatic pushed content download failed", it)
                 }
             }
@@ -381,10 +390,10 @@ class SystemBridgeService : Service() {
                 callback.setClipboardText(text, sourceHash)
             }
         }.onSuccess { newHash ->
-            automaticTransferFailed = false
+            remoteTransferFailure = null
             if (newHash != null) repository.saveLastAutomaticRemoteHash(newHash)
         }.onFailure {
-            automaticTransferFailed = true
+            remoteTransferFailure = it.toSyncFailureKind()
             Log.w(TAG, "Automatic content download failed", it)
             if (!callback.asBinder().isBinderAlive) disconnectSystemBridge()
         }
@@ -418,7 +427,7 @@ class SystemBridgeService : Service() {
         if (settings.wifiOnly && !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
             return BridgeContract.AUTOMATIC_SYNC_WAITING_FOR_WIFI
         }
-        if (signalRFailed || automaticTransferFailed) {
+        if (signalRFailure != null || pendingUploadFailure != null || remoteTransferFailure != null) {
             return BridgeContract.AUTOMATIC_SYNC_ERROR
         }
 
@@ -428,6 +437,19 @@ class SystemBridgeService : Service() {
         } else {
             BridgeContract.AUTOMATIC_SYNC_RUNNING
         }
+    }
+
+    private fun resolveAutomaticSyncError(): Int = when (
+        pendingUploadFailure ?: remoteTransferFailure ?: signalRFailure
+    ) {
+        SyncFailureKind.AUTHENTICATION -> BridgeContract.AUTOMATIC_SYNC_ERROR_AUTHENTICATION
+        SyncFailureKind.NETWORK -> BridgeContract.AUTOMATIC_SYNC_ERROR_NETWORK
+        SyncFailureKind.TLS -> BridgeContract.AUTOMATIC_SYNC_ERROR_TLS
+        SyncFailureKind.SERVER -> BridgeContract.AUTOMATIC_SYNC_ERROR_SERVER
+        SyncFailureKind.STORAGE -> BridgeContract.AUTOMATIC_SYNC_ERROR_STORAGE
+        SyncFailureKind.CONTENT -> BridgeContract.AUTOMATIC_SYNC_ERROR_CONTENT
+        SyncFailureKind.UNKNOWN -> BridgeContract.AUTOMATIC_SYNC_ERROR_UNKNOWN
+        null -> BridgeContract.AUTOMATIC_SYNC_ERROR_NONE
     }
 
     private fun refreshDeviceUnlockedState() {
