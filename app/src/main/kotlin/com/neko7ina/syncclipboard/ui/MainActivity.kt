@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -85,6 +86,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import com.neko7ina.syncclipboard.BuildConfig
 import com.neko7ina.syncclipboard.R
 import com.neko7ina.syncclipboard.bridge.BridgeContract
 import com.neko7ina.syncclipboard.data.AdvancedSyncSettings
@@ -106,6 +108,8 @@ import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
 import java.util.UUID
+
+private const val PROJECT_URL = "https://github.com/huaxianyan/SyncClipboard-Kotlin"
 
 private val LightColorScheme = lightColorScheme(
     primary = Color(0xFF0061A4),
@@ -531,6 +535,7 @@ private fun SettingsPage(
     var testing by rememberSaveable { mutableStateOf(false) }
     var advancedSync by remember { mutableStateOf(repository.loadAdvancedSyncSettings()) }
     var showUninstallConfirmation by rememberSaveable { mutableStateOf(false) }
+    var showLicense by rememberSaveable { mutableStateOf(false) }
 
     fun openEditor(mode: ServerEditorMode) {
         val source = profiles.activeServer.takeIf { mode == ServerEditorMode.EDIT }
@@ -652,6 +657,9 @@ private fun SettingsPage(
                 }
             },
         )
+    }
+    if (showLicense) {
+        LicenseDialog(onDismiss = { showLicense = false })
     }
 
     PageColumn(contentPadding) {
@@ -776,14 +784,17 @@ private fun SettingsPage(
                 )
             },
         )
-        Text(
-            text = "SyncClipboard Kotlin · 0.1.0",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier
-                .align(Alignment.CenterHorizontally)
-                .padding(top = 4.dp, bottom = 24.dp),
+        AboutCard(
+            onShowLicense = { showLicense = true },
+            onOpenProjectPage = {
+                runCatching {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PROJECT_URL)))
+                }.onFailure {
+                    showMessage("无法打开项目主页，请检查浏览器设置")
+                }
+            },
         )
+        Spacer(Modifier.size(8.dp))
     }
 }
 
@@ -1207,6 +1218,62 @@ private fun tonalSwitchColors(): SwitchColors = SwitchDefaults.colors(
     disabledCheckedThumbColor = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.38f),
     disabledCheckedTrackColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.38f),
 )
+
+@Composable
+private fun LicenseDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val licenseText by produceState(initialValue = "正在读取许可证……") {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                context.assets.open("LICENSE").bufferedReader().use { it.readText() }
+            }.getOrElse {
+                "许可证文件无法读取，请前往项目主页查看。"
+            }
+        }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("GNU General Public License v3.0") },
+        text = {
+            Text(
+                text = licenseText,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier
+                    .heightIn(max = 480.dp)
+                    .verticalScroll(rememberScrollState()),
+            )
+        },
+        confirmButton = {
+            FilledTonalButton(onClick = onDismiss) {
+                Text("关闭")
+            }
+        },
+    )
+}
+
+@Composable
+private fun AboutCard(
+    onShowLicense: () -> Unit,
+    onOpenProjectPage: () -> Unit,
+) {
+    SectionCard(title = "关于") {
+        Text(
+            "SyncClipboard Kotlin ${BuildConfig.VERSION_NAME}",
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text(
+            "本软件依照 GNU GPL v3.0 发布，不附带任何担保。你可以查看、修改和分发源代码。",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        FilledTonalButton(onClick = onShowLicense, modifier = Modifier.fillMaxWidth()) {
+            Text("查看开源许可证")
+        }
+        OutlinedButton(onClick = onOpenProjectPage, modifier = Modifier.fillMaxWidth()) {
+            Text("项目主页与致谢")
+        }
+    }
+}
 
 @Composable
 private fun TileCard(

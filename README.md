@@ -4,6 +4,13 @@ SyncClipboard Kotlin 是面向 Android 的原生 SyncClipboard 客户端，用�
 
 项目使用 Kotlin 与 Jetpack Compose 构建主体界面，并保留轻量原生快速路径。主体应用可以独立完成手动同步；需要后台自动同步时，可按需安装无界面的 LSPosed 系统扩展。
 
+## 下载
+
+请从 [GitHub Releases](https://github.com/huaxianyan/SyncClipboard-Kotlin/releases) 下载正式版本：
+
+- `app-release.apk`：主体应用，提供手动同步和全部设置
+- `system-extension-release.apk`：可选系统扩展，仅用于后台自动同步
+
 ## 功能
 
 ### 手动同步

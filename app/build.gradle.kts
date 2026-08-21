@@ -5,6 +5,7 @@ plugins {
 }
 
 apply(from = rootProject.file("gradle/signing.gradle"))
+apply(from = rootProject.file("gradle/license.gradle"))
 
 android {
     namespace = "com.neko7ina.syncclipboard"
@@ -40,6 +41,7 @@ android {
     }
 
     buildFeatures {
+        buildConfig = true
         compose = true
     }
 }

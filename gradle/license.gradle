@@ -1,0 +1,10 @@
+final Provider<Directory> generatedLicenseAssets = layout.buildDirectory.dir('generated/licenseAssets')
+final TaskProvider<Copy> generateLicenseAsset = tasks.register('generateLicenseAsset', Copy) {
+    from rootProject.file('LICENSE')
+    into generatedLicenseAssets
+}
+
+android.sourceSets.main.assets.srcDir(generatedLicenseAssets)
+tasks.named('preBuild').configure {
+    dependsOn generateLicenseAsset
+}
