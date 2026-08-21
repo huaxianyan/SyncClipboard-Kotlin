@@ -130,7 +130,7 @@ class SystemBridgeService : Service() {
             val settings = repository.loadAdvancedSyncSettings()
             if (!settings.enabled || !settings.uploadText) return
             if (sensitive && settings.ignoreSensitiveContent) return
-            storePendingText(text)
+            storePendingText(text, persist = !sensitive)
             requestPendingTextUpload()
         }
 
@@ -225,8 +225,12 @@ class SystemBridgeService : Service() {
     }
 
     @Synchronized
-    private fun storePendingText(text: String) {
-        repository.savePendingAutomaticText(text)
+    private fun storePendingText(text: String, persist: Boolean) {
+        if (persist) {
+            repository.savePendingAutomaticText(text)
+        } else {
+            repository.clearPendingAutomaticText()
+        }
         pendingClipboardText = text
     }
 
