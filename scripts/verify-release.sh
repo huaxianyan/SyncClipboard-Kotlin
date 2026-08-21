@@ -55,8 +55,8 @@ verify_apk() {
     grep -Fq "versionName='$VERSION_NAME'" <<<"$badging"
 
     certificate="$(
-        java -jar "$APKSIGNER_JAR" verify --print-certs "$apk" |
-            awk -F': ' '/Signer #1 certificate SHA-256 digest/ { print $2; exit }'
+        java -jar "$APKSIGNER_JAR" verify --print-certs "$apk" 2>&1 |
+            awk -F': ' 'tolower($0) ~ /certificate sha-256 digest/ { print $NF; exit }'
     )"
     normalized_certificate="$(printf '%s' "$certificate" | tr '[:upper:]' '[:lower:]')"
     normalized_expected="$(printf '%s' "$EXPECTED_CERTIFICATE" | tr '[:upper:]' '[:lower:]')"
