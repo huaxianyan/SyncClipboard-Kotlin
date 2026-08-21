@@ -32,6 +32,23 @@ class SyncFailureKindTest {
     }
 
     @Test
+    fun `wrapped sync failure exposes only its user message`() {
+        val error = RuntimeException(
+            "internal wrapper",
+            SyncException("请检查服务器设置后重试", IllegalStateException("internal detail")),
+        )
+
+        assertEquals(
+            "请检查服务器设置后重试",
+            error.toSyncUserMessage("操作未完成，请稍后重试"),
+        )
+        assertEquals(
+            "操作未完成，请稍后重试",
+            IllegalStateException("internal detail").toSyncUserMessage("操作未完成，请稍后重试"),
+        )
+    }
+
+    @Test
     fun `unrecognized failure remains unknown`() {
         assertEquals(
             SyncFailureKind.UNKNOWN,

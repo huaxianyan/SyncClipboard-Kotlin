@@ -17,6 +17,7 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import com.neko7ina.syncclipboard.R
 import com.neko7ina.syncclipboard.sync.ClipboardTransferService
+import com.neko7ina.syncclipboard.sync.toSyncUserMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -91,7 +92,10 @@ class TileActionActivity : Activity() {
                 progress.visibility = ProgressBar.GONE
                 title.text = "操作失败"
                 title.setTextColor(getColor(R.color.md_error))
-                message.text = "${it.message ?: "操作未完成，请检查配置和网络"}\n\n轻触卡片关闭"
+                val userMessage = it.toSyncUserMessage(
+                    "操作未完成，请检查服务器配置和网络后重试",
+                )
+                message.text = "$userMessage\n\n轻触卡片关闭"
                 card.setOnClickListener { finishAndRemoveTask() }
             }
         }
@@ -99,7 +103,8 @@ class TileActionActivity : Activity() {
 
     private fun showRunningState(action: Action) {
         title.text = when (action) {
-            Action.UPLOAD_CLIPBOARD, Action.UPLOAD_SHARED -> "上传剪贴板"
+            Action.UPLOAD_CLIPBOARD -> "上传剪贴板"
+            Action.UPLOAD_SHARED -> "上传分享内容"
             Action.DOWNLOAD_CLIPBOARD -> "下载剪贴板"
         }
         title.setTextColor(getColor(R.color.md_on_surface))

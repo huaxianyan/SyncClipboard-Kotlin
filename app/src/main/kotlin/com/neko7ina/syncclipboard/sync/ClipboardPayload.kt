@@ -14,8 +14,9 @@ enum class ClipboardType(val wireName: String) {
         fun fromWireName(value: String): ClipboardType = entries.firstOrNull {
             it.wireName.equals(value, ignoreCase = true)
         } ?: throw SyncException(
-            "服务器返回了未知内容类型：$value",
-            failureKind = SyncFailureKind.CONTENT,
+            "服务器返回的内容类型不受支持，请确认其他设备和服务器版本一致",
+            UnknownClipboardTypeException(value),
+            SyncFailureKind.CONTENT,
         )
     }
 }
@@ -78,7 +79,7 @@ class SyncException(
 ) : Exception(message, cause)
 
 fun Throwable.toSyncFailureKind(): SyncFailureKind {
-    val causes = generateSequence(this as Throwable?) { it.cause }.toList()
+    val causes = causeChain()
     causes.filterIsInstance<SyncException>()
         .firstOrNull { it.failureKind != SyncFailureKind.UNKNOWN }
         ?.let { return it.failureKind }
@@ -86,3 +87,15 @@ fun Throwable.toSyncFailureKind(): SyncFailureKind {
     if (causes.any { it is IOException }) return SyncFailureKind.NETWORK
     return SyncFailureKind.UNKNOWN
 }
+
+fun Throwable.toSyncUserMessage(fallback: String): String = causeChain()
+    .filterIsInstance<SyncException>()
+    .mapNotNull { it.message?.takeIf(String::isNotBlank) }
+    .firstOrNull()
+    ?: fallback
+
+private fun Throwable.causeChain(): List<Throwable> =
+    generateSequence(this as Throwable?) { it.cause }.toList()
+
+private class UnknownClipboardTypeException(value: String) :
+    Exception("Unsupported clipboard type: $value")

@@ -102,6 +102,7 @@ import com.neko7ina.syncclipboard.extension.SystemExtensionStatus
 import com.neko7ina.syncclipboard.net.SyncClipboardClient
 import com.neko7ina.syncclipboard.sync.SyncFailureKind
 import com.neko7ina.syncclipboard.sync.toSyncFailureKind
+import com.neko7ina.syncclipboard.sync.toSyncUserMessage
 import com.neko7ina.syncclipboard.tile.DownloadClipboardTileService
 import com.neko7ina.syncclipboard.tile.UploadClipboardTileService
 import kotlinx.coroutines.Dispatchers
@@ -813,7 +814,11 @@ private fun SettingsPage(
                             }.onSuccess {
                                 showMessage("连接成功")
                             }.onFailure {
-                                showMessage(it.message ?: "连接失败，请检查网络和服务器配置")
+                                showMessage(
+                                    it.toSyncUserMessage(
+                                        "连接未完成，请检查服务器配置和网络后重试",
+                                    ),
+                                )
                             }
                             testing = false
                         }

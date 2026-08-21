@@ -24,8 +24,12 @@ class ClipboardTransferService(private val context: Context) {
 
     fun uploadClipboard(): String {
         val clipboard = context.getSystemService(ClipboardManager::class.java)
-        val clip = clipboard.primaryClip ?: throw SyncException("剪贴板为空")
-        if (clip.itemCount == 0) throw SyncException("剪贴板为空")
+        val clip = clipboard.primaryClip ?: throw SyncException(
+            "剪贴板中没有可上传的内容，请先复制文本、图片或文件",
+        )
+        if (clip.itemCount == 0) {
+            throw SyncException("剪贴板中没有可上传的内容，请先复制文本、图片或文件")
+        }
         return uploadPrepared(readClipItem(clip.getItemAt(0), clip.description.getMimeType(0)))
     }
 
@@ -48,7 +52,9 @@ class ClipboardTransferService(private val context: Context) {
             stream != null -> readUri(stream, type)
             intent.getStringExtra(Intent.EXTRA_TEXT) != null ->
                 PayloadFactory.text(intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty())
-            else -> throw SyncException("分享内容为空或暂不支持")
+            else -> throw SyncException(
+                "没有收到可上传的分享内容，请重新选择一个文本、图片或文件",
+            )
         }
         return uploadPrepared(prepared)
     }
@@ -124,7 +130,7 @@ class ClipboardTransferService(private val context: Context) {
             failureKind = SyncFailureKind.STORAGE,
         )
         val name = payload.dataName ?: throw SyncException(
-            "远端文件缺少文件名",
+            "服务器返回的文件信息不完整，请在发送设备上重新同步后重试",
             failureKind = SyncFailureKind.CONTENT,
         )
         client().readFile(name) { input ->
@@ -148,7 +154,7 @@ class ClipboardTransferService(private val context: Context) {
         ClipboardType.TEXT -> {
             val text = if (payload.hasData) {
                 val name = payload.dataName ?: throw SyncException(
-                    "文本数据缺少文件名",
+                    "服务器返回的文本信息不完整，请在发送设备上重新同步后重试",
                     failureKind = SyncFailureKind.CONTENT,
                 )
                 client.getFile(name).toString(Charsets.UTF_8)
@@ -161,7 +167,10 @@ class ClipboardTransferService(private val context: Context) {
         }
 
         ClipboardType.IMAGE, ClipboardType.FILE -> {
-            val name = payload.dataName ?: throw SyncException("文件名为空")
+            val name = payload.dataName ?: throw SyncException(
+                "服务器返回的文件信息不完整，请在发送设备上重新同步后重试",
+                failureKind = SyncFailureKind.CONTENT,
+            )
             val bytes = client.getFile(name)
             verifyFileHash(payload.hash, name, bytes)
             saveDownload(name, bytes, guessMimeType(name))
@@ -169,7 +178,10 @@ class ClipboardTransferService(private val context: Context) {
         }
 
         ClipboardType.GROUP -> {
-            val name = payload.dataName ?: throw SyncException("文件组缺少文件名")
+            val name = payload.dataName ?: throw SyncException(
+                "服务器返回的文件组信息不完整，请在发送设备上重新同步后重试",
+                failureKind = SyncFailureKind.CONTENT,
+            )
             val bytes = client.getFile(name)
             val folder = "SyncClipboard_${DATE_FORMAT.format(Date())}"
             val count = extractZip(bytes, folder)
@@ -194,7 +206,10 @@ class ClipboardTransferService(private val context: Context) {
 
     private fun client(): SyncClipboardClient {
         val config = SettingsRepository(context).loadServer()
-            ?: throw SyncException("尚未配置服务器")
+            ?: throw SyncException(
+                "尚未配置服务器，请先在应用设置中添加服务器",
+                failureKind = SyncFailureKind.SERVER,
+            )
         return SyncClipboardClient(config)
     }
 
@@ -203,7 +218,7 @@ class ClipboardTransferService(private val context: Context) {
         val text = item.text?.toString() ?: item.htmlText?.toString()
         if (!text.isNullOrBlank()) return PayloadFactory.text(text)
         item.intent?.data?.let { return readUri(it, mimeType) }
-        throw SyncException("暂不支持当前剪贴板内容")
+        throw SyncException("当前剪贴板内容无法上传，请改用 Android 分享发送")
     }
 
     private fun readUri(uri: Uri, suppliedMimeType: String?): PreparedUpload {
@@ -211,9 +226,17 @@ class ClipboardTransferService(private val context: Context) {
         val mimeType = suppliedMimeType ?: resolver.getType(uri)
         val bytes = try {
             resolver.openInputStream(uri)?.use { it.readBytes() }
-                ?: throw SyncException("无法读取文件")
+                ?: throw SyncException("无法读取所选文件，请重新选择后再试")
         } catch (error: SecurityException) {
-            throw SyncException("没有权限读取该文件，请改用系统分享功能", error)
+            throw SyncException("没有权限读取该文件，请重新选择并分享", error)
+        } catch (error: SyncException) {
+            throw error
+        } catch (error: Exception) {
+            throw SyncException(
+                "无法读取所选文件，请确认文件仍在原位置后重试",
+                error,
+                SyncFailureKind.STORAGE,
+            )
         }
         return PayloadFactory.file(name, bytes, mimeType)
     }
@@ -229,7 +252,7 @@ class ClipboardTransferService(private val context: Context) {
         val actual = PayloadFactory.sha256(text.toByteArray(Charsets.UTF_8))
         if (!expected.equals(actual, ignoreCase = true)) {
             throw SyncException(
-                "文本校验失败，内容可能不完整",
+                "收到的文本内容不完整，请在发送设备上重新同步后重试",
                 failureKind = SyncFailureKind.CONTENT,
             )
         }
@@ -240,7 +263,7 @@ class ClipboardTransferService(private val context: Context) {
         val actual = PayloadFactory.file(name, bytes, null).payload.hash
         if (!expected.equals(actual, ignoreCase = true)) {
             throw SyncException(
-                "文件校验失败，内容可能已损坏",
+                "收到的文件内容不完整，请在发送设备上重新同步后重试",
                 failureKind = SyncFailureKind.CONTENT,
             )
         }
@@ -255,34 +278,60 @@ class ClipboardTransferService(private val context: Context) {
             put(MediaStore.Downloads.IS_PENDING, 1)
         }
         val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-            ?: throw SyncException("无法创建下载文件")
+            ?: throw SyncException(
+                "无法保存下载内容，请检查存储空间后重试",
+                failureKind = SyncFailureKind.STORAGE,
+            )
         try {
             resolver.openOutputStream(uri, "w")?.use { it.write(bytes) }
-                ?: throw SyncException("无法写入下载文件")
+                ?: throw SyncException(
+                    "无法写入下载内容，请检查存储空间后重试",
+                    failureKind = SyncFailureKind.STORAGE,
+                )
             values.clear()
             values.put(MediaStore.Downloads.IS_PENDING, 0)
             resolver.update(uri, values, null, null)
         } catch (error: Exception) {
             resolver.delete(uri, null, null)
-            throw error
+            if (error is SyncException) throw error
+            throw SyncException(
+                "保存下载内容失败，请检查存储空间后重试",
+                error,
+                SyncFailureKind.STORAGE,
+            )
         }
     }
 
-    private fun extractZip(bytes: ByteArray, folder: String): Int {
+    private fun extractZip(bytes: ByteArray, folder: String): Int = try {
         var count = 0
         var totalBytes = 0L
         ZipInputStream(ByteArrayInputStream(bytes)).use { zip ->
             while (true) {
                 val entry = zip.nextEntry ?: break
                 if (entry.isDirectory) continue
-                if (++count > MAX_ZIP_ENTRIES) throw SyncException("压缩包文件数量过多")
+                if (++count > MAX_ZIP_ENTRIES) {
+                    throw SyncException(
+                        "压缩包包含过多文件，请减少文件数量后重新发送",
+                        failureKind = SyncFailureKind.CONTENT,
+                    )
+                }
                 val normalized = entry.name.replace('\\', '/').trimStart('/')
-                if (normalized.split('/').any { it == ".." }) throw SyncException("压缩包包含不安全路径")
+                if (normalized.split('/').any { it == ".." }) {
+                    throw SyncException(
+                        "压缩包包含无法安全保存的文件，请检查后重新发送",
+                        failureKind = SyncFailureKind.CONTENT,
+                    )
+                }
                 val parts = normalized.split('/').filter(String::isNotBlank)
                 if (parts.isEmpty()) continue
                 val entryBytes = zip.readBytes()
                 totalBytes += entryBytes.size
-                if (totalBytes > MAX_EXTRACTED_BYTES) throw SyncException("压缩包解压后过大")
+                if (totalBytes > MAX_EXTRACTED_BYTES) {
+                    throw SyncException(
+                        "压缩包展开后超出支持范围，请减少内容后重新发送",
+                        failureKind = SyncFailureKind.CONTENT,
+                    )
+                }
                 val parent = parts.dropLast(1).joinToString("/") { safePathSegment(it) }
                 val relativePath = buildString {
                     append(DOWNLOAD_ROOT).append('/').append(folder)
@@ -292,7 +341,15 @@ class ClipboardTransferService(private val context: Context) {
                 zip.closeEntry()
             }
         }
-        return count
+        count
+    } catch (error: SyncException) {
+        throw error
+    } catch (error: Exception) {
+        throw SyncException(
+            "无法读取收到的压缩包，请在发送设备上重新同步后重试",
+            error,
+            SyncFailureKind.CONTENT,
+        )
     }
 
     private fun saveDownloadAt(name: String, bytes: ByteArray, relativePath: String) {
@@ -303,16 +360,27 @@ class ClipboardTransferService(private val context: Context) {
             put(MediaStore.Downloads.IS_PENDING, 1)
         }
         val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-            ?: throw SyncException("无法创建解压文件")
+            ?: throw SyncException(
+                "无法保存解压内容，请检查存储空间后重试",
+                failureKind = SyncFailureKind.STORAGE,
+            )
         try {
             resolver.openOutputStream(uri, "w")?.use { it.write(bytes) }
-                ?: throw SyncException("无法写入解压文件")
+                ?: throw SyncException(
+                    "无法写入解压内容，请检查存储空间后重试",
+                    failureKind = SyncFailureKind.STORAGE,
+                )
             values.clear()
             values.put(MediaStore.Downloads.IS_PENDING, 0)
             resolver.update(uri, values, null, null)
         } catch (error: Exception) {
             resolver.delete(uri, null, null)
-            throw error
+            if (error is SyncException) throw error
+            throw SyncException(
+                "保存解压内容失败，请检查存储空间后重试",
+                error,
+                SyncFailureKind.STORAGE,
+            )
         }
     }
 

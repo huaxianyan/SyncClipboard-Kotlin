@@ -9,7 +9,9 @@ object PayloadFactory {
 
     fun text(text: String): PreparedUpload {
         val normalized = text.trim()
-        if (normalized.isEmpty()) throw SyncException("剪贴板为空")
+        if (normalized.isEmpty()) {
+            throw SyncException("剪贴板中没有可上传的文本，请先复制内容")
+        }
 
         val hash = sha256(normalized.toByteArray(StandardCharsets.UTF_8))
         if (normalized.length <= TEXT_FILE_THRESHOLD) {
@@ -41,7 +43,9 @@ object PayloadFactory {
     }
 
     fun file(fileName: String, bytes: ByteArray, mimeType: String?): PreparedUpload {
-        if (bytes.isEmpty()) throw SyncException("文件内容为空")
+        if (bytes.isEmpty()) {
+            throw SyncException("所选文件没有内容，请选择其他文件")
+        }
         val safeName = safeFileName(fileName)
         val contentHash = sha256(bytes)
         val hash = fileHash(safeName, contentHash)

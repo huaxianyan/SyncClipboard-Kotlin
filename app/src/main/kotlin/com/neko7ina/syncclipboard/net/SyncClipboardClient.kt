@@ -35,7 +35,13 @@ class SyncClipboardClient(
     private val config: ServerConfig,
     private val client: OkHttpClient = ClientCache.get(config),
 ) {
-    private val baseUrl = config.normalizedUrl.toHttpUrl()
+    private val baseUrl = runCatching { config.normalizedUrl.toHttpUrl() }.getOrElse {
+        throw SyncException(
+            "服务器地址格式不正确，请在设置中填写完整地址",
+            it,
+            SyncFailureKind.SERVER,
+        )
+    }
     private val authorization = Credentials.basic(config.username, config.password, Charsets.UTF_8)
 
     fun getClipboard(): ClipboardPayload {
@@ -79,21 +85,24 @@ class SyncClipboardClient(
             client.newCall(request).execute().use { response ->
                 when (response.code) {
                     in 200..299 -> Unit
-                    401 -> throw SyncException(
-                        "认证失败：用户名或密码错误",
-                        failureKind = SyncFailureKind.AUTHENTICATION,
+                    401, 403 -> throw SyncException(
+                        "用户名或密码不正确，请在设置中更新服务器凭据后重试",
+                        HttpResponseException(response.code, request.url.encodedPath),
+                        SyncFailureKind.AUTHENTICATION,
                     )
                     404 -> throw SyncException(
-                        "服务器文件不存在：${request.url.encodedPath}",
-                        failureKind = SyncFailureKind.SERVER,
+                        "服务器上找不到需要的同步内容，请在发送设备上重新同步后重试",
+                        HttpResponseException(response.code, request.url.encodedPath),
+                        SyncFailureKind.SERVER,
                     )
                     else -> throw SyncException(
-                        "服务器请求失败：HTTP ${response.code}",
-                        failureKind = SyncFailureKind.SERVER,
+                        "服务器暂时无法完成同步，请确认同步服务运行正常后重试",
+                        HttpResponseException(response.code, request.url.encodedPath),
+                        SyncFailureKind.SERVER,
                     )
                 }
                 val responseBody = response.body ?: throw SyncException(
-                    "服务器返回了空响应",
+                    "服务器没有返回同步内容，请确认同步服务运行正常后重试",
                     failureKind = SyncFailureKind.SERVER,
                 )
                 return body(responseBody)
@@ -102,22 +111,27 @@ class SyncClipboardClient(
             throw error
         } catch (error: JSONException) {
             throw SyncException(
-                "服务器返回的内容格式无效",
+                "服务器返回的同步内容格式不正确，请确认其他设备和服务器版本一致",
                 error,
                 SyncFailureKind.CONTENT,
             )
         } catch (error: IOException) {
             throw SyncException(networkErrorMessage(error), error, error.toSyncFailureKind())
         } catch (error: Exception) {
-            throw SyncException("请求失败：${error.message ?: error.javaClass.simpleName}", error)
+            throw SyncException("同步请求未能完成，请稍后重试", error)
         }
     }
 
     private fun networkErrorMessage(error: IOException): String = when {
-        error is java.net.SocketTimeoutException -> "连接或传输超时"
-        error is java.net.UnknownHostException -> "无法解析服务器地址"
-        error is java.net.ConnectException -> "无法连接到服务器"
-        else -> "网络请求失败：${error.message ?: error.javaClass.simpleName}"
+        error.toSyncFailureKind() == SyncFailureKind.TLS ->
+            "无法验证 HTTPS 证书，请检查证书或自签名证书设置后重试"
+        error is java.net.SocketTimeoutException ->
+            "连接服务器超时，请检查网络和服务器地址后重试"
+        error is java.net.UnknownHostException ->
+            "无法找到服务器，请检查服务器地址和网络连接后重试"
+        error is java.net.ConnectException ->
+            "服务器拒绝连接，请确认同步服务正在运行后重试"
+        else -> "网络传输中断，请检查网络连接后重试"
     }
 
     private companion object {
@@ -125,6 +139,9 @@ class SyncClipboardClient(
         val BINARY_MEDIA_TYPE = "application/octet-stream".toMediaType()
     }
 }
+
+private class HttpResponseException(statusCode: Int, path: String) :
+    Exception("HTTP $statusCode for $path")
 
 private object ClientCache {
     @Volatile
