@@ -73,7 +73,10 @@ class SystemExtensionController(
         }
         val lastEventTime = runCatching { service?.lastClipboardEventTime ?: 0L }.getOrDefault(0L)
         val lastSyncTime = runCatching { service?.lastSuccessfulSyncTime ?: 0L }.getOrDefault(0L)
-        onStateChanged(SystemExtensionState(status, lastEventTime, lastSyncTime))
+        val automaticSyncState = runCatching { service?.automaticSyncState }
+            .getOrNull()
+            .toAutomaticSyncRuntimeState()
+        onStateChanged(SystemExtensionState(status, lastEventTime, lastSyncTime, automaticSyncState))
     }
 
     fun reloadConfiguration() {
@@ -100,6 +103,19 @@ class SystemExtensionController(
         }
     }.getOrNull()
 
+    private fun Int?.toAutomaticSyncRuntimeState(): AutomaticSyncRuntimeState = when (this) {
+        BridgeContract.AUTOMATIC_SYNC_DISABLED -> AutomaticSyncRuntimeState.DISABLED
+        BridgeContract.AUTOMATIC_SYNC_RUNNING -> AutomaticSyncRuntimeState.RUNNING
+        BridgeContract.AUTOMATIC_SYNC_WAITING_FOR_WIFI -> AutomaticSyncRuntimeState.WAITING_FOR_WIFI
+        BridgeContract.AUTOMATIC_SYNC_WAITING_FOR_NETWORK -> AutomaticSyncRuntimeState.WAITING_FOR_NETWORK
+        BridgeContract.AUTOMATIC_SYNC_WAITING_FOR_UNLOCK -> AutomaticSyncRuntimeState.WAITING_FOR_UNLOCK
+        BridgeContract.AUTOMATIC_SYNC_CONNECTING -> AutomaticSyncRuntimeState.CONNECTING
+        BridgeContract.AUTOMATIC_SYNC_ERROR -> AutomaticSyncRuntimeState.ERROR
+        BridgeContract.AUTOMATIC_SYNC_SERVER_NOT_CONFIGURED ->
+            AutomaticSyncRuntimeState.SERVER_NOT_CONFIGURED
+        else -> AutomaticSyncRuntimeState.UNKNOWN
+    }
+
     private fun signerCertificates(info: android.content.pm.PackageInfo): Set<String> {
         val signingInfo = info.signingInfo ?: return emptySet()
         val signatures = if (signingInfo.hasMultipleSigners()) {
@@ -119,7 +135,20 @@ data class SystemExtensionState(
     val status: SystemExtensionStatus,
     val lastClipboardEventTime: Long = 0L,
     val lastSuccessfulSyncTime: Long = 0L,
+    val automaticSyncState: AutomaticSyncRuntimeState = AutomaticSyncRuntimeState.UNKNOWN,
 )
+
+enum class AutomaticSyncRuntimeState {
+    UNKNOWN,
+    DISABLED,
+    RUNNING,
+    WAITING_FOR_WIFI,
+    WAITING_FOR_NETWORK,
+    WAITING_FOR_UNLOCK,
+    CONNECTING,
+    ERROR,
+    SERVER_NOT_CONFIGURED,
+}
 
 enum class SystemExtensionStatus {
     NOT_INSTALLED,

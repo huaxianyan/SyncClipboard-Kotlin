@@ -93,6 +93,7 @@ import com.neko7ina.syncclipboard.data.ServerConfig
 import com.neko7ina.syncclipboard.data.ServerProfiles
 import com.neko7ina.syncclipboard.data.SettingsRepository
 import com.neko7ina.syncclipboard.data.SyncDirection
+import com.neko7ina.syncclipboard.extension.AutomaticSyncRuntimeState
 import com.neko7ina.syncclipboard.extension.SystemExtensionController
 import com.neko7ina.syncclipboard.extension.SystemExtensionState
 import com.neko7ina.syncclipboard.extension.SystemExtensionStatus
@@ -261,7 +262,9 @@ private fun DashboardPage(
     val repository = remember { SettingsRepository(context.applicationContext) }
     val server = remember { repository.loadServer() }
     val lastSync = remember(extensionState.lastSuccessfulSyncTime) { repository.loadLastSync() }
-    val advancedSync = remember(extensionState.status) { repository.loadAdvancedSyncSettings() }
+    val advancedSync = remember(extensionState.status, extensionState.automaticSyncState) {
+        repository.loadAdvancedSyncSettings()
+    }
     var checkRequest by remember { mutableIntStateOf(0) }
     var connectionStatus by remember {
         mutableStateOf(
@@ -363,25 +366,69 @@ private fun AutomaticSyncCard(
     settings: AdvancedSyncSettings,
     extensionState: SystemExtensionState,
 ) {
-    val running = settings.enabled && extensionState.status == SystemExtensionStatus.READY
+    val extensionReady = extensionState.status == SystemExtensionStatus.READY
+    val runtimeState = extensionState.automaticSyncState
+    val running = settings.enabled && extensionReady && runtimeState == AutomaticSyncRuntimeState.RUNNING
+    val warning = settings.enabled && extensionReady && runtimeState in setOf(
+        AutomaticSyncRuntimeState.UNKNOWN,
+        AutomaticSyncRuntimeState.WAITING_FOR_WIFI,
+        AutomaticSyncRuntimeState.WAITING_FOR_NETWORK,
+        AutomaticSyncRuntimeState.WAITING_FOR_UNLOCK,
+        AutomaticSyncRuntimeState.CONNECTING,
+    )
+    val failed = settings.enabled && (
+        !extensionReady ||
+            runtimeState == AutomaticSyncRuntimeState.ERROR ||
+            runtimeState == AutomaticSyncRuntimeState.SERVER_NOT_CONFIGURED
+        )
     val title = when {
-        running -> "自动同步运行中"
         !settings.enabled -> "当前使用手动同步"
+        extensionState.status == SystemExtensionStatus.NOT_INSTALLED -> "自动同步不可用"
+        extensionState.status == SystemExtensionStatus.INSTALLED_NOT_CONNECTED -> "自动同步未连接"
         extensionState.status == SystemExtensionStatus.INCOMPATIBLE -> "自动同步需要更新扩展"
-        extensionState.status == SystemExtensionStatus.NOT_INSTALLED -> "自动同步已暂停"
-        else -> "正在恢复自动同步"
+        runtimeState == AutomaticSyncRuntimeState.RUNNING -> "自动同步运行中"
+        runtimeState == AutomaticSyncRuntimeState.WAITING_FOR_WIFI -> "等待 Wi-Fi"
+        runtimeState == AutomaticSyncRuntimeState.WAITING_FOR_NETWORK -> "等待网络连接"
+        runtimeState == AutomaticSyncRuntimeState.WAITING_FOR_UNLOCK -> "等待设备解锁"
+        runtimeState == AutomaticSyncRuntimeState.CONNECTING -> "正在连接自动同步"
+        runtimeState == AutomaticSyncRuntimeState.SERVER_NOT_CONFIGURED -> "尚未配置同步服务器"
+        runtimeState == AutomaticSyncRuntimeState.ERROR -> "自动同步遇到问题"
+        else -> "正在读取自动同步状态"
     }
     val detail = when {
-        running -> buildList {
+        !settings.enabled -> "磁贴、分享和手动同步可继续使用。"
+        extensionState.status == SystemExtensionStatus.NOT_INSTALLED ->
+            "请先安装与主体应用匹配的系统扩展。"
+        extensionState.status == SystemExtensionStatus.INSTALLED_NOT_CONNECTED ->
+            "请在模块管理器中启用系统扩展并重新启动设备。"
+        extensionState.status == SystemExtensionStatus.INCOMPATIBLE ->
+            "请安装与当前应用兼容的系统扩展。"
+        runtimeState == AutomaticSyncRuntimeState.RUNNING -> buildList {
             if (settings.uploadText) add("自动上传文本")
             if (settings.downloadText) add("自动接收文本")
             if (settings.downloadImage) add("自动接收图片")
             if (settings.downloadFile) add("自动接收文件")
-        }.joinToString(" · ").ifEmpty { "已连接系统扩展" }
-        !settings.enabled -> "磁贴、分享和手动同步可继续使用。"
-        extensionState.status == SystemExtensionStatus.NOT_INSTALLED -> "安装系统扩展后可恢复后台同步。"
-        extensionState.status == SystemExtensionStatus.INCOMPATIBLE -> "请安装与当前应用兼容的系统扩展。"
-        else -> "系统扩展连接后将自动继续。"
+        }.joinToString(" · ").ifEmpty { "自动同步已就绪" }
+        runtimeState == AutomaticSyncRuntimeState.WAITING_FOR_WIFI ->
+            "连接 Wi-Fi 后将自动继续。"
+        runtimeState == AutomaticSyncRuntimeState.WAITING_FOR_NETWORK ->
+            "网络恢复后将自动继续。"
+        runtimeState == AutomaticSyncRuntimeState.WAITING_FOR_UNLOCK ->
+            "设备解锁后将自动继续。"
+        runtimeState == AutomaticSyncRuntimeState.CONNECTING ->
+            "正在连接服务器，成功后将自动继续。"
+        runtimeState == AutomaticSyncRuntimeState.SERVER_NOT_CONFIGURED ->
+            "请先在设置中添加并选择服务器。"
+        runtimeState == AutomaticSyncRuntimeState.ERROR ->
+            "请检查服务器、网络和保存目录设置。自动同步会继续重试。"
+        else -> "请稍候。"
+    }
+    val warningColor = if (isSystemInDarkTheme()) Color(0xFFFFD54F) else Color(0xFFF9A825)
+    val statusColor = when {
+        running -> MaterialTheme.colorScheme.tertiary
+        warning -> warningColor
+        failed -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.outline
     }
 
     SectionCard(title = "自动同步") {
@@ -393,10 +440,7 @@ private fun AutomaticSyncCard(
             Box(
                 modifier = Modifier
                     .size(16.dp)
-                    .background(
-                        if (running) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.outline,
-                        CircleShape,
-                    ),
+                    .background(statusColor, CircleShape),
             )
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(title, style = MaterialTheme.typography.titleMedium)

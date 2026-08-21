@@ -57,6 +57,15 @@ class SystemBridgeService : Service() {
     private var networkAvailable = false
 
     @Volatile
+    private var signalRConnected = false
+
+    @Volatile
+    private var signalRFailed = false
+
+    @Volatile
+    private var automaticTransferFailed = false
+
+    @Volatile
     private var pendingClipboardText: String? = null
 
     private var pendingUploadJob: Job? = null
@@ -157,6 +166,8 @@ class SystemBridgeService : Service() {
                 reloadForAnotherProcess = true,
             )
             if (!repository.loadAdvancedSyncSettings().uploadText) pendingClipboardText = null
+            signalRFailed = false
+            automaticTransferFailed = false
             refreshNetworkAvailability()
             requestPendingTextUpload()
             requestRemoteSyncRestart()
@@ -165,6 +176,11 @@ class SystemBridgeService : Service() {
         override fun updateExtensionAvailability(installed: Boolean) {
             enforceHostCaller()
             if (!installed) disconnectSystemBridge()
+        }
+
+        override fun getAutomaticSyncState(): Int {
+            enforceHostCaller()
+            return resolveAutomaticSyncState()
         }
     }
 
@@ -230,11 +246,13 @@ class SystemBridgeService : Service() {
             ClipboardTransferService(this).uploadTextIfChanged(text, previousHash)
         }.fold(
             onSuccess = { hash ->
+                automaticTransferFailed = false
                 if (hash != null) repository.saveLastAutomaticRemoteHash(hash)
                 if (pendingClipboardText == text) pendingClipboardText = null
                 true
             },
             onFailure = {
+                automaticTransferFailed = true
                 Log.w(TAG, "Automatic text upload failed", it)
                 false
             },
@@ -247,6 +265,8 @@ class SystemBridgeService : Service() {
                 if (remoteSyncJob?.isActive == true) Log.i(TAG, "Remote sync stopping")
                 remoteSyncJob?.cancel()
                 remoteSyncJob = null
+                signalRConnected = false
+                signalRFailed = false
                 if (shouldRunRemoteSync()) {
                     Log.i(TAG, "Remote sync starting")
                     remoteSyncJob = scope.launch { runRemoteSyncLoop() }
@@ -265,6 +285,8 @@ class SystemBridgeService : Service() {
                 client.start()
                 if (!shouldRunRemoteSync()) return
                 failureIndex = 0
+                signalRConnected = true
+                signalRFailed = false
                 Log.i(TAG, "SignalR connected")
                 transferMutex.withLock { pollRemoteClipboard() }
                 lastFallbackPollAt = SystemClock.elapsedRealtime()
@@ -273,6 +295,8 @@ class SystemBridgeService : Service() {
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
+                signalRConnected = false
+                signalRFailed = true
                 Log.w(TAG, "SignalR unavailable", error)
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastFallbackPollAt >= FALLBACK_POLL_INTERVAL_MILLIS) {
@@ -300,8 +324,12 @@ class SystemBridgeService : Service() {
                             callback.setClipboardText(text, sourceHash)
                         }
                 }.onSuccess { newHash ->
+                    automaticTransferFailed = false
                     if (newHash != null) repository.saveLastAutomaticRemoteHash(newHash)
-                }.onFailure { Log.w(TAG, "Automatic pushed content download failed", it) }
+                }.onFailure {
+                    automaticTransferFailed = true
+                    Log.w(TAG, "Automatic pushed content download failed", it)
+                }
             }
         }
     }
@@ -319,8 +347,10 @@ class SystemBridgeService : Service() {
                 callback.setClipboardText(text, sourceHash)
             }
         }.onSuccess { newHash ->
+            automaticTransferFailed = false
             if (newHash != null) repository.saveLastAutomaticRemoteHash(newHash)
         }.onFailure {
+            automaticTransferFailed = true
             Log.w(TAG, "Automatic content download failed", it)
             if (!callback.asBinder().isBinderAlive) disconnectSystemBridge()
         }
@@ -334,6 +364,36 @@ class SystemBridgeService : Service() {
             deviceUnlocked &&
             networkAvailable &&
             systemBridge?.asBinder()?.isBinderAlive == true
+    }
+
+    private fun resolveAutomaticSyncState(): Int {
+        val settings = repository.loadAdvancedSyncSettings()
+        if (!settings.enabled) return BridgeContract.AUTOMATIC_SYNC_DISABLED
+        if (repository.loadServer() == null) {
+            return BridgeContract.AUTOMATIC_SYNC_SERVER_NOT_CONFIGURED
+        }
+        if (!deviceUnlocked) return BridgeContract.AUTOMATIC_SYNC_WAITING_FOR_UNLOCK
+
+        val network = connectivityManager.activeNetwork
+            ?: return BridgeContract.AUTOMATIC_SYNC_WAITING_FOR_NETWORK
+        val capabilities = connectivityManager.getNetworkCapabilities(network)
+            ?: return BridgeContract.AUTOMATIC_SYNC_WAITING_FOR_NETWORK
+        if (!capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+            return BridgeContract.AUTOMATIC_SYNC_WAITING_FOR_NETWORK
+        }
+        if (settings.wifiOnly && !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+            return BridgeContract.AUTOMATIC_SYNC_WAITING_FOR_WIFI
+        }
+        if (signalRFailed || automaticTransferFailed) {
+            return BridgeContract.AUTOMATIC_SYNC_ERROR
+        }
+
+        val downloadsEnabled = settings.downloadText || settings.downloadImage || settings.downloadFile
+        return if (downloadsEnabled && !signalRConnected) {
+            BridgeContract.AUTOMATIC_SYNC_CONNECTING
+        } else {
+            BridgeContract.AUTOMATIC_SYNC_RUNNING
+        }
     }
 
     private fun refreshDeviceUnlockedState() {
