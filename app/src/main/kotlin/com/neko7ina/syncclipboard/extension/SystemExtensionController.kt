@@ -11,6 +11,7 @@ import android.os.IBinder
 import android.os.Looper
 import com.neko7ina.syncclipboard.bridge.BridgeContract
 import com.neko7ina.syncclipboard.bridge.ISyncBridgeService
+import com.neko7ina.syncclipboard.sync.SyncFailureKind
 
 class SystemExtensionController(
     context: Context,
@@ -76,16 +77,16 @@ class SystemExtensionController(
         val automaticSyncState = runCatching { service?.automaticSyncState }
             .getOrNull()
             .toAutomaticSyncRuntimeState()
-        val automaticSyncError = runCatching { service?.automaticSyncError }
+        val automaticSyncFailure = runCatching { service?.automaticSyncError }
             .getOrNull()
-            .toAutomaticSyncError()
+            .toSyncFailureKind()
         onStateChanged(
             SystemExtensionState(
                 status,
                 lastEventTime,
                 lastSyncTime,
                 automaticSyncState,
-                automaticSyncError,
+                automaticSyncFailure,
             ),
         )
     }
@@ -127,15 +128,15 @@ class SystemExtensionController(
         else -> AutomaticSyncRuntimeState.UNKNOWN
     }
 
-    private fun Int?.toAutomaticSyncError(): AutomaticSyncError = when (this) {
-        BridgeContract.AUTOMATIC_SYNC_ERROR_NONE -> AutomaticSyncError.NONE
-        BridgeContract.AUTOMATIC_SYNC_ERROR_AUTHENTICATION -> AutomaticSyncError.AUTHENTICATION
-        BridgeContract.AUTOMATIC_SYNC_ERROR_NETWORK -> AutomaticSyncError.NETWORK
-        BridgeContract.AUTOMATIC_SYNC_ERROR_TLS -> AutomaticSyncError.TLS
-        BridgeContract.AUTOMATIC_SYNC_ERROR_SERVER -> AutomaticSyncError.SERVER
-        BridgeContract.AUTOMATIC_SYNC_ERROR_STORAGE -> AutomaticSyncError.STORAGE
-        BridgeContract.AUTOMATIC_SYNC_ERROR_CONTENT -> AutomaticSyncError.CONTENT
-        else -> AutomaticSyncError.UNKNOWN
+    private fun Int?.toSyncFailureKind(): SyncFailureKind? = when (this) {
+        BridgeContract.AUTOMATIC_SYNC_ERROR_NONE -> null
+        BridgeContract.AUTOMATIC_SYNC_ERROR_AUTHENTICATION -> SyncFailureKind.AUTHENTICATION
+        BridgeContract.AUTOMATIC_SYNC_ERROR_NETWORK -> SyncFailureKind.NETWORK
+        BridgeContract.AUTOMATIC_SYNC_ERROR_TLS -> SyncFailureKind.TLS
+        BridgeContract.AUTOMATIC_SYNC_ERROR_SERVER -> SyncFailureKind.SERVER
+        BridgeContract.AUTOMATIC_SYNC_ERROR_STORAGE -> SyncFailureKind.STORAGE
+        BridgeContract.AUTOMATIC_SYNC_ERROR_CONTENT -> SyncFailureKind.CONTENT
+        else -> SyncFailureKind.UNKNOWN
     }
 
     private fun signerCertificates(info: android.content.pm.PackageInfo): Set<String> {
@@ -158,19 +159,8 @@ data class SystemExtensionState(
     val lastClipboardEventTime: Long = 0L,
     val lastSuccessfulSyncTime: Long = 0L,
     val automaticSyncState: AutomaticSyncRuntimeState = AutomaticSyncRuntimeState.UNKNOWN,
-    val automaticSyncError: AutomaticSyncError = AutomaticSyncError.NONE,
+    val automaticSyncFailure: SyncFailureKind? = null,
 )
-
-enum class AutomaticSyncError {
-    NONE,
-    AUTHENTICATION,
-    NETWORK,
-    TLS,
-    SERVER,
-    STORAGE,
-    CONTENT,
-    UNKNOWN,
-}
 
 enum class AutomaticSyncRuntimeState {
     UNKNOWN,

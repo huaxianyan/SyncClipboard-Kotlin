@@ -95,12 +95,13 @@ import com.neko7ina.syncclipboard.data.ServerConfig
 import com.neko7ina.syncclipboard.data.ServerProfiles
 import com.neko7ina.syncclipboard.data.SettingsRepository
 import com.neko7ina.syncclipboard.data.SyncDirection
-import com.neko7ina.syncclipboard.extension.AutomaticSyncError
 import com.neko7ina.syncclipboard.extension.AutomaticSyncRuntimeState
 import com.neko7ina.syncclipboard.extension.SystemExtensionController
 import com.neko7ina.syncclipboard.extension.SystemExtensionState
 import com.neko7ina.syncclipboard.extension.SystemExtensionStatus
 import com.neko7ina.syncclipboard.net.SyncClipboardClient
+import com.neko7ina.syncclipboard.sync.SyncFailureKind
+import com.neko7ina.syncclipboard.sync.toSyncFailureKind
 import com.neko7ina.syncclipboard.tile.DownloadClipboardTileService
 import com.neko7ina.syncclipboard.tile.UploadClipboardTileService
 import kotlinx.coroutines.Dispatchers
@@ -213,6 +214,7 @@ private fun SyncClipboardApp(
             if (server == null) ConnectionStatus.NOT_CONFIGURED else ConnectionStatus.CHECKING,
         )
     }
+    var connectionFailure by remember { mutableStateOf<SyncFailureKind?>(null) }
     val extensionController = remember {
         SystemExtensionController(context.applicationContext) { extensionState = it }
     }
@@ -226,14 +228,19 @@ private fun SyncClipboardApp(
         val checkedServer = server
         if (checkedServer == null) {
             connectionStatus = ConnectionStatus.NOT_CONFIGURED
+            connectionFailure = null
             return@LaunchedEffect
         }
         connectionStatus = ConnectionStatus.CHECKING
+        connectionFailure = null
         connectionStatus = runCatching {
             withContext(Dispatchers.IO) { SyncClipboardClient(checkedServer).testConnection() }
         }.fold(
             onSuccess = { ConnectionStatus.CONNECTED },
-            onFailure = { ConnectionStatus.FAILED },
+            onFailure = {
+                connectionFailure = it.toSyncFailureKind()
+                ConnectionStatus.FAILED
+            },
         )
     }
 
@@ -272,6 +279,7 @@ private fun SyncClipboardApp(
                 extensionState = extensionState,
                 server = server,
                 connectionStatus = connectionStatus,
+                connectionFailure = connectionFailure,
                 onRetryConnection = { checkRequest++ },
             )
             AppPage.SETTINGS -> SettingsPage(
@@ -299,6 +307,7 @@ private fun DashboardPage(
     extensionState: SystemExtensionState,
     server: ServerConfig?,
     connectionStatus: ConnectionStatus,
+    connectionFailure: SyncFailureKind?,
     onRetryConnection: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -312,6 +321,7 @@ private fun DashboardPage(
         ConnectionCard(
             status = connectionStatus,
             server = server,
+            failure = connectionFailure,
             onRetry = onRetryConnection,
         )
         AutomaticSyncCard(advancedSync, extensionState)
@@ -323,6 +333,7 @@ private fun DashboardPage(
 private fun ConnectionCard(
     status: ConnectionStatus,
     server: ServerConfig?,
+    failure: SyncFailureKind?,
     onRetry: () -> Unit,
 ) {
     val statusColor = when (status) {
@@ -333,14 +344,14 @@ private fun ConnectionCard(
     }
     val title = when (status) {
         ConnectionStatus.CONNECTED -> "连接正常"
-        ConnectionStatus.FAILED -> "无法连接服务器"
+        ConnectionStatus.FAILED -> syncFailureTitle(failure, "服务器检查失败")
         ConnectionStatus.CHECKING -> "正在检查连接"
         ConnectionStatus.NOT_CONFIGURED -> "尚未配置服务器"
     }
     val detail = when (status) {
         ConnectionStatus.CONNECTED,
         ConnectionStatus.CHECKING -> server?.normalizedUrl.orEmpty()
-        ConnectionStatus.FAILED -> "请检查网络或服务器设置后重试。"
+        ConnectionStatus.FAILED -> "${syncFailureAction(failure)}，然后重试。"
         ConnectionStatus.NOT_CONFIGURED -> "请先前往设置填写服务器信息。"
     }
 
@@ -411,7 +422,7 @@ private fun AutomaticSyncCard(
         runtimeState == AutomaticSyncRuntimeState.CONNECTING -> "正在连接自动同步"
         runtimeState == AutomaticSyncRuntimeState.SERVER_NOT_CONFIGURED -> "尚未配置同步服务器"
         runtimeState == AutomaticSyncRuntimeState.ERROR ->
-            automaticSyncErrorTitle(extensionState.automaticSyncError)
+            syncFailureTitle(extensionState.automaticSyncFailure, "自动同步遇到问题")
         else -> "正在读取自动同步状态"
     }
     val detail = when {
@@ -439,7 +450,7 @@ private fun AutomaticSyncCard(
         runtimeState == AutomaticSyncRuntimeState.SERVER_NOT_CONFIGURED ->
             "请先在设置中添加并选择服务器。"
         runtimeState == AutomaticSyncRuntimeState.ERROR ->
-            automaticSyncErrorDetail(extensionState.automaticSyncError)
+            "${syncFailureAction(extensionState.automaticSyncFailure)}。自动同步会继续重试。"
         else -> "请稍候。"
     }
     val statusColor = when {
@@ -483,26 +494,26 @@ private fun AutomaticSyncCard(
     }
 }
 
-private fun automaticSyncErrorTitle(error: AutomaticSyncError): String = when (error) {
-    AutomaticSyncError.AUTHENTICATION -> "服务器认证失败"
-    AutomaticSyncError.NETWORK -> "无法连接服务器"
-    AutomaticSyncError.TLS -> "HTTPS 证书验证失败"
-    AutomaticSyncError.SERVER -> "服务器响应异常"
-    AutomaticSyncError.STORAGE -> "文件保存失败"
-    AutomaticSyncError.CONTENT -> "同步内容异常"
-    AutomaticSyncError.NONE,
-    AutomaticSyncError.UNKNOWN -> "自动同步遇到问题"
+private fun syncFailureTitle(failure: SyncFailureKind?, fallbackTitle: String): String = when (failure) {
+    SyncFailureKind.AUTHENTICATION -> "服务器认证失败"
+    SyncFailureKind.NETWORK -> "无法连接服务器"
+    SyncFailureKind.TLS -> "HTTPS 证书验证失败"
+    SyncFailureKind.SERVER -> "服务器响应异常"
+    SyncFailureKind.STORAGE -> "文件保存失败"
+    SyncFailureKind.CONTENT -> "同步内容异常"
+    SyncFailureKind.UNKNOWN,
+    null -> fallbackTitle
 }
 
-private fun automaticSyncErrorDetail(error: AutomaticSyncError): String = when (error) {
-    AutomaticSyncError.AUTHENTICATION -> "请在设置中检查用户名和密码。自动同步会继续重试。"
-    AutomaticSyncError.NETWORK -> "请检查网络连接和服务器地址。自动同步会继续重试。"
-    AutomaticSyncError.TLS -> "请检查 HTTPS 证书或自签名证书设置。自动同步会继续重试。"
-    AutomaticSyncError.SERVER -> "请确认服务正在运行且版本兼容。自动同步会继续重试。"
-    AutomaticSyncError.STORAGE -> "请重新选择保存目录并检查可用空间。自动同步会继续重试。"
-    AutomaticSyncError.CONTENT -> "请检查其他设备和服务器版本。自动同步会继续重试。"
-    AutomaticSyncError.NONE,
-    AutomaticSyncError.UNKNOWN -> "请重新检查服务器设置。自动同步会继续重试。"
+private fun syncFailureAction(failure: SyncFailureKind?): String = when (failure) {
+    SyncFailureKind.AUTHENTICATION -> "请在设置中检查用户名和密码"
+    SyncFailureKind.NETWORK -> "请检查网络连接和服务器地址"
+    SyncFailureKind.TLS -> "请检查 HTTPS 证书或自签名证书设置"
+    SyncFailureKind.SERVER -> "请确认服务正在运行且版本兼容"
+    SyncFailureKind.STORAGE -> "请重新选择保存目录并检查可用空间"
+    SyncFailureKind.CONTENT -> "请检查其他设备和服务器版本"
+    SyncFailureKind.UNKNOWN,
+    null -> "请重新检查服务器设置"
 }
 
 @Composable
