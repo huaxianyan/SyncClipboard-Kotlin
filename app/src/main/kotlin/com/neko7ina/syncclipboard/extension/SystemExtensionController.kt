@@ -138,6 +138,7 @@ class SystemExtensionController(
         BridgeContract.AUTOMATIC_SYNC_ERROR_SERVER -> SyncFailureKind.SERVER
         BridgeContract.AUTOMATIC_SYNC_ERROR_STORAGE -> SyncFailureKind.STORAGE
         BridgeContract.AUTOMATIC_SYNC_ERROR_CONTENT -> SyncFailureKind.CONTENT
+        BridgeContract.AUTOMATIC_SYNC_ERROR_BRIDGE -> SyncFailureKind.BRIDGE
         else -> SyncFailureKind.UNKNOWN
     }
 

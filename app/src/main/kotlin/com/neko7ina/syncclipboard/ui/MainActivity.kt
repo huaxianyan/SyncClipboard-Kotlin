@@ -651,6 +651,7 @@ private fun syncFailureTitle(failure: SyncFailureKind?, fallbackTitle: String): 
     SyncFailureKind.SERVER -> "服务器响应异常"
     SyncFailureKind.STORAGE -> "文件保存失败"
     SyncFailureKind.CONTENT -> "同步内容异常"
+    SyncFailureKind.BRIDGE -> "系统扩展暂时不可用"
     SyncFailureKind.UNKNOWN,
     null -> fallbackTitle
 }
@@ -662,6 +663,7 @@ private fun syncFailureAction(failure: SyncFailureKind?): String = when (failure
     SyncFailureKind.SERVER -> "请确认服务正在运行且版本兼容"
     SyncFailureKind.STORAGE -> "请重新选择保存目录并检查可用空间"
     SyncFailureKind.CONTENT -> "请检查其他设备和服务器版本"
+    SyncFailureKind.BRIDGE -> "请保持设备解锁，自动同步会继续重试"
     SyncFailureKind.UNKNOWN,
     null -> "请重新检查服务器设置"
 }

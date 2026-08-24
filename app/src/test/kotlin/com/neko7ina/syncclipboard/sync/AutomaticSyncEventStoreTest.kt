@@ -27,7 +27,7 @@ class AutomaticSyncEventStoreTest {
         now += 1_000
         store.record(
             AutomaticSyncEventKind.DOWNLOAD_FAILED,
-            failure = SyncFailureKind.NETWORK,
+            failure = SyncFailureKind.BRIDGE,
             contentType = ClipboardType.IMAGE,
         )
 
@@ -43,7 +43,7 @@ class AutomaticSyncEventStoreTest {
                 AutomaticSyncEvent(
                     1_700_000_001_000L,
                     AutomaticSyncEventKind.DOWNLOAD_FAILED,
-                    SyncFailureKind.NETWORK,
+                    SyncFailureKind.BRIDGE,
                     ClipboardType.IMAGE,
                 ),
             ),

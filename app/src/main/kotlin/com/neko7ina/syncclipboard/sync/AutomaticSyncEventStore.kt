@@ -140,6 +140,7 @@ internal class AutomaticSyncEventStore(
             SyncFailureKind.SERVER -> "server"
             SyncFailureKind.STORAGE -> "storage"
             SyncFailureKind.CONTENT -> "content"
+            SyncFailureKind.BRIDGE -> "bridge"
             SyncFailureKind.UNKNOWN -> "unknown"
         }
 
@@ -150,6 +151,7 @@ internal class AutomaticSyncEventStore(
             "server" -> SyncFailureKind.SERVER
             "storage" -> SyncFailureKind.STORAGE
             "content" -> SyncFailureKind.CONTENT
+            "bridge" -> SyncFailureKind.BRIDGE
             "unknown" -> SyncFailureKind.UNKNOWN
             else -> null
         }

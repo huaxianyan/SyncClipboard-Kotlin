@@ -69,6 +69,7 @@ enum class SyncFailureKind {
     SERVER,
     STORAGE,
     CONTENT,
+    BRIDGE,
     UNKNOWN,
 }
 

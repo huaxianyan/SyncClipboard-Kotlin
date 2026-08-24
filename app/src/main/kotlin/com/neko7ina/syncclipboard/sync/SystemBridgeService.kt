@@ -12,12 +12,14 @@ import android.net.NetworkCapabilities
 import android.os.Binder
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.RemoteException
 import android.os.SystemClock
 import android.util.Log
 import com.neko7ina.syncclipboard.bridge.BridgeContract
 import com.neko7ina.syncclipboard.bridge.ISyncBridgeService
 import com.neko7ina.syncclipboard.bridge.ISystemClipboardBridge
 import com.neko7ina.syncclipboard.data.SettingsRepository
+import com.neko7ina.syncclipboard.data.SyncDirection
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +34,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+
+private data class PendingClipboardWrite(
+    val text: String,
+    val sourceHash: String,
+)
 
 class SystemBridgeService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -73,7 +80,11 @@ class SystemBridgeService : Service() {
     @Volatile
     private var pendingClipboardText: String? = null
 
+    @Volatile
+    private var pendingClipboardWrite: PendingClipboardWrite? = null
+
     private var pendingUploadJob: Job? = null
+    private var clipboardWriteRetryJob: Job? = null
     private var remoteSyncJob: Job? = null
     private val bridgeDeathRecipient = IBinder.DeathRecipient(::disconnectSystemBridge)
     private val connectivityManager by lazy { getSystemService(ConnectivityManager::class.java) }
@@ -119,6 +130,7 @@ class SystemBridgeService : Service() {
                 recordAutomaticSyncEvent(AutomaticSyncEventKind.EXTENSION_CONNECTED)
             }
             requestPendingTextUpload()
+            requestClipboardWriteRetry()
             requestRemoteSyncRestart()
             return BridgeContract.REGISTERED
         }
@@ -185,6 +197,7 @@ class SystemBridgeService : Service() {
             remoteTransferFailure = null
             refreshNetworkAvailability()
             requestPendingTextUpload()
+            requestClipboardWriteRetry()
             requestRemoteSyncRestart()
         }
 
@@ -390,7 +403,7 @@ class SystemBridgeService : Service() {
                 runCatching {
                     ClipboardTransferService(this@SystemBridgeService)
                         .applyRemoteAutomatically(payload, previousHash, settings) { text, sourceHash ->
-                            callback.setClipboardText(text, sourceHash)
+                            writeClipboardText(callback, text, sourceHash)
                         }
                 }.onSuccess { newHash ->
                     remoteTransferFailure = null
@@ -424,7 +437,7 @@ class SystemBridgeService : Service() {
                 previousHash,
                 settings,
             ) { text, sourceHash ->
-                callback.setClipboardText(text, sourceHash)
+                writeClipboardText(callback, text, sourceHash)
             }
         }.onSuccess { newHash ->
             remoteTransferFailure = null
@@ -439,7 +452,63 @@ class SystemBridgeService : Service() {
                 failure = remoteTransferFailure,
             )
             Log.w(TAG, "Automatic content download failed", it)
-            if (!callback.asBinder().isBinderAlive) disconnectSystemBridge()
+        }
+    }
+
+    private fun writeClipboardText(
+        callback: ISystemClipboardBridge,
+        text: String,
+        sourceHash: String,
+    ) {
+        try {
+            callback.setClipboardText(text, sourceHash)
+            pendingClipboardWrite = null
+        } catch (error: RemoteException) {
+            pendingClipboardWrite = PendingClipboardWrite(text, sourceHash)
+            requestClipboardWriteRetry()
+            throw SyncException(
+                "系统扩展暂时无法写入剪贴板，请保持设备解锁",
+                error,
+                SyncFailureKind.BRIDGE,
+            )
+        }
+    }
+
+    @Synchronized
+    private fun requestClipboardWriteRetry() {
+        if (!deviceUnlocked || pendingClipboardWrite == null) return
+        if (clipboardWriteRetryJob?.isActive == true) return
+        clipboardWriteRetryJob = scope.launch {
+            for (retryDelay in CLIPBOARD_WRITE_RETRY_DELAYS_MILLIS) {
+                delay(retryDelay)
+                if (!deviceUnlocked) return@launch
+                val succeeded = transferMutex.withLock {
+                    val pending = pendingClipboardWrite ?: return@withLock true
+                    val callback = systemBridge ?: return@withLock false
+                    try {
+                        callback.setClipboardText(pending.text, pending.sourceHash)
+                        pendingClipboardWrite = null
+                        repository.saveLastAutomaticRemoteHash(pending.sourceHash)
+                        repository.recordSuccessfulSync(SyncDirection.DOWNLOAD)
+                        remoteTransferFailure = null
+                        recordAutomaticSyncEvent(
+                            AutomaticSyncEventKind.DOWNLOAD_SUCCEEDED,
+                            contentType = ClipboardType.TEXT,
+                        )
+                        true
+                    } catch (error: RemoteException) {
+                        remoteTransferFailure = SyncFailureKind.BRIDGE
+                        recordAutomaticSyncEvent(
+                            AutomaticSyncEventKind.DOWNLOAD_FAILED,
+                            failure = SyncFailureKind.BRIDGE,
+                            contentType = ClipboardType.TEXT,
+                        )
+                        Log.w(TAG, "Clipboard write retry failed", error)
+                        false
+                    }
+                }
+                if (succeeded) return@launch
+            }
         }
     }
 
@@ -496,6 +565,7 @@ class SystemBridgeService : Service() {
         SyncFailureKind.SERVER -> BridgeContract.AUTOMATIC_SYNC_ERROR_SERVER
         SyncFailureKind.STORAGE -> BridgeContract.AUTOMATIC_SYNC_ERROR_STORAGE
         SyncFailureKind.CONTENT -> BridgeContract.AUTOMATIC_SYNC_ERROR_CONTENT
+        SyncFailureKind.BRIDGE -> BridgeContract.AUTOMATIC_SYNC_ERROR_BRIDGE
         SyncFailureKind.UNKNOWN -> BridgeContract.AUTOMATIC_SYNC_ERROR_UNKNOWN
         null -> BridgeContract.AUTOMATIC_SYNC_ERROR_NONE
     }
@@ -508,7 +578,12 @@ class SystemBridgeService : Service() {
         if (deviceUnlocked == unlocked) return
         deviceUnlocked = unlocked
         Log.i(TAG, "Device unlocked state changed: $deviceUnlocked")
+        if (!unlocked) {
+            clipboardWriteRetryJob?.cancel()
+            clipboardWriteRetryJob = null
+        }
         requestPendingTextUpload()
+        requestClipboardWriteRetry()
         requestRemoteSyncRestart()
     }
 
@@ -543,6 +618,8 @@ class SystemBridgeService : Service() {
     private fun disconnectSystemBridge(restartRemoteSync: Boolean = true) {
         val current = systemBridge
         systemBridge = null
+        clipboardWriteRetryJob?.cancel()
+        clipboardWriteRetryJob = null
         if (current != null) {
             current.asBinder().unlinkToDeath(bridgeDeathRecipient, 0)
             scope.launch {
@@ -579,6 +656,7 @@ class SystemBridgeService : Service() {
     private companion object {
         const val TAG = "SystemBridgeService"
         const val FALLBACK_POLL_INTERVAL_MILLIS = 5 * 60 * 1_000L
+        val CLIPBOARD_WRITE_RETRY_DELAYS_MILLIS = longArrayOf(1_000L, 5_000L, 15_000L, 30_000L)
         val RECONNECT_DELAYS_MILLIS = longArrayOf(
             5_000L,
             15_000L,
