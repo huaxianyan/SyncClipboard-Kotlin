@@ -24,6 +24,8 @@ android {
         }
     }
 
+    sourceSets.getByName("main").res.srcDir(rootProject.file("branding/res"))
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
