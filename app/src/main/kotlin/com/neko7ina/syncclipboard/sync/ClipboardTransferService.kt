@@ -21,6 +21,7 @@ import java.util.zip.ZipInputStream
 
 class ClipboardTransferService(private val context: Context) {
     private val resolver = context.contentResolver
+    private val repository = SettingsRepository(context)
 
     fun uploadClipboard(): String {
         val clipboard = context.getSystemService(ClipboardManager::class.java)
@@ -33,10 +34,14 @@ class ClipboardTransferService(private val context: Context) {
         return uploadPrepared(readClipItem(clip.getItemAt(0), clip.description.getMimeType(0)))
     }
 
-    fun uploadTextIfChanged(text: String, previousHash: String?): String? {
+    fun uploadTextIfChanged(
+        text: String,
+        previousHash: String?,
+        recordHistory: Boolean = true,
+    ): String? {
         val prepared = PayloadFactory.text(text)
         if (prepared.payload.hash.equals(previousHash, ignoreCase = true)) return null
-        uploadPrepared(prepared)
+        uploadPrepared(prepared, recordHistory)
         return prepared.payload.hash
     }
 
@@ -66,9 +71,11 @@ class ClipboardTransferService(private val context: Context) {
                 ClipData.newPlainText("SyncClipboard", text),
             )
         }
-        SettingsRepository(context).recordSuccessfulSync(SyncDirection.DOWNLOAD)
+        repository.recordSuccessfulSync(SyncDirection.DOWNLOAD)
         return result
     }
+
+    fun getRemoteClipboard(): ClipboardPayload = client().getClipboard()
 
     fun downloadAutomatically(
         previousHash: String?,
@@ -82,7 +89,7 @@ class ClipboardTransferService(private val context: Context) {
         settings: AdvancedSyncSettings,
         onText: (text: String, sourceHash: String) -> Unit,
     ): String? {
-        val sourceHash = payload.hash ?: PayloadFactory.sha256(payload.toJson().toByteArray())
+        val sourceHash = remoteHash(payload)
         if (sourceHash.equals(previousHash, ignoreCase = true)) return null
 
         return when (payload.type) {
@@ -111,14 +118,35 @@ class ClipboardTransferService(private val context: Context) {
         previousHash: String?,
         onText: (text: String, sourceHash: String) -> Unit,
     ): String? {
-        val sourceHash = payload.hash ?: PayloadFactory.sha256(payload.toJson().toByteArray())
+        val sourceHash = remoteHash(payload)
         if (sourceHash.equals(previousHash, ignoreCase = true)) return null
         if (payload.type != ClipboardType.TEXT) return sourceHash
 
         applyDownloadedPayload(client(), payload) { text -> onText(text, sourceHash) }
-        SettingsRepository(context).recordSuccessfulSync(SyncDirection.DOWNLOAD)
+        repository.recordSuccessfulSync(SyncDirection.DOWNLOAD)
         return sourceHash
     }
+
+    fun captureRemoteTextForHistory(payload: ClipboardPayload): String {
+        if (payload.type != ClipboardType.TEXT) {
+            throw SyncException(
+                "服务器返回的内容类型不受支持，请确认其他设备和服务器版本一致",
+                failureKind = SyncFailureKind.CONTENT,
+            )
+        }
+        val sourceHash = remoteHash(payload)
+        val text = readRemoteText(client(), payload)
+        recordTextHistory(
+            source = TextSyncHistorySource.REMOTE,
+            sourceHash = sourceHash,
+            text = text,
+            appliedToClipboard = false,
+        )
+        return sourceHash
+    }
+
+    fun remoteHash(payload: ClipboardPayload): String =
+        payload.hash ?: PayloadFactory.sha256(payload.toJson().toByteArray())
 
     private fun downloadRemoteFile(
         payload: ClipboardPayload,
@@ -142,7 +170,7 @@ class ClipboardTransferService(private val context: Context) {
                 input = input,
             )
         }
-        SettingsRepository(context).recordSuccessfulSync(SyncDirection.DOWNLOAD)
+        repository.recordSuccessfulSync(SyncDirection.DOWNLOAD)
         return sourceHash
     }
 
@@ -152,17 +180,21 @@ class ClipboardTransferService(private val context: Context) {
         onText: (String) -> Unit,
     ): String = when (payload.type) {
         ClipboardType.TEXT -> {
-            val text = if (payload.hasData) {
-                val name = payload.dataName ?: throw SyncException(
-                    "服务器返回的文本信息不完整，请在发送设备上重新同步后重试",
-                    failureKind = SyncFailureKind.CONTENT,
-                )
-                client.getFile(name).toString(Charsets.UTF_8)
-            } else {
-                payload.text
-            }
-            verifyTextHash(payload.hash, text)
+            val text = readRemoteText(client, payload)
+            val sourceHash = remoteHash(payload)
+            recordTextHistory(
+                source = TextSyncHistorySource.REMOTE,
+                sourceHash = sourceHash,
+                text = text,
+                appliedToClipboard = false,
+            )
             onText(text)
+            recordTextHistory(
+                source = TextSyncHistorySource.REMOTE,
+                sourceHash = sourceHash,
+                text = text,
+                appliedToClipboard = true,
+            )
             "下载成功：文本已写入剪贴板"
         }
 
@@ -189,13 +221,29 @@ class ClipboardTransferService(private val context: Context) {
         }
     }
 
-    private fun uploadPrepared(prepared: PreparedUpload): String {
+    private fun uploadPrepared(
+        prepared: PreparedUpload,
+        recordHistory: Boolean = true,
+    ): String {
         val client = client()
         if (prepared.hasFile) {
             client.putFile(prepared.fileName!!, prepared.bytes!!)
         }
         client.putClipboard(prepared.payload)
-        SettingsRepository(context).recordSuccessfulSync(SyncDirection.UPLOAD)
+        repository.recordSuccessfulSync(SyncDirection.UPLOAD)
+        if (prepared.payload.type == ClipboardType.TEXT && recordHistory) {
+            val text = if (prepared.payload.hasData) {
+                prepared.bytes?.toString(Charsets.UTF_8).orEmpty()
+            } else {
+                prepared.payload.text
+            }
+            recordTextHistory(
+                source = TextSyncHistorySource.LOCAL,
+                sourceHash = prepared.payload.hash ?: PayloadFactory.sha256(text.toByteArray()),
+                text = text,
+                appliedToClipboard = true,
+            )
+        }
         return when (prepared.payload.type) {
             ClipboardType.TEXT -> "上传成功：剪贴板文本已同步"
             ClipboardType.IMAGE -> "上传成功：剪贴板图片已同步"
@@ -204,8 +252,44 @@ class ClipboardTransferService(private val context: Context) {
         }
     }
 
+    private fun readRemoteText(
+        client: SyncClipboardClient,
+        payload: ClipboardPayload,
+    ): String {
+        val text = if (payload.hasData) {
+            val name = payload.dataName ?: throw SyncException(
+                "服务器返回的文本信息不完整，请在发送设备上重新同步后重试",
+                failureKind = SyncFailureKind.CONTENT,
+            )
+            client.getFile(name).toString(Charsets.UTF_8)
+        } else {
+            payload.text
+        }
+        verifyTextHash(payload.hash, text)
+        return text
+    }
+
+    private fun recordTextHistory(
+        source: TextSyncHistorySource,
+        sourceHash: String,
+        text: String,
+        appliedToClipboard: Boolean,
+    ) {
+        val settings = repository.loadAdvancedSyncSettings()
+        val serverId = repository.loadServer()?.id ?: return
+        TextSyncHistory.record(
+            context = context,
+            enabled = settings.textHistoryEnabled,
+            source = source,
+            serverId = serverId,
+            hash = sourceHash,
+            text = text,
+            appliedToClipboard = appliedToClipboard,
+        )
+    }
+
     private fun client(): SyncClipboardClient {
-        val profiles = SettingsRepository(context).loadServerProfilesResult()
+        val profiles = repository.loadServerProfilesResult()
         if (profiles.credentialsUnavailable) {
             throw SyncException(
                 "服务器凭据无法读取，请在应用设置中重新添加服务器方案",

@@ -1,6 +1,8 @@
 package com.neko7ina.syncclipboard.ui
 
 import android.app.StatusBarManager
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Intent
 import android.net.Uri
@@ -107,6 +109,9 @@ import com.neko7ina.syncclipboard.sync.AutomaticSyncEventKind
 import com.neko7ina.syncclipboard.sync.AutomaticSyncEventStore
 import com.neko7ina.syncclipboard.sync.ClipboardType
 import com.neko7ina.syncclipboard.sync.SyncFailureKind
+import com.neko7ina.syncclipboard.sync.TextSyncHistoryEntry
+import com.neko7ina.syncclipboard.sync.TextSyncHistorySource
+import com.neko7ina.syncclipboard.sync.TextSyncHistoryStore
 import com.neko7ina.syncclipboard.sync.toSyncFailureKind
 import com.neko7ina.syncclipboard.sync.toSyncUserMessage
 import com.neko7ina.syncclipboard.tile.DownloadClipboardTileService
@@ -202,6 +207,7 @@ private enum class AppPage(val title: String) {
     HOME("首页"),
     SETTINGS("设置"),
     AUTOMATIC_SYNC_EVENTS("自动同步记录"),
+    TEXT_SYNC_HISTORY("文本同步历史"),
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -274,16 +280,21 @@ private fun SyncClipboardApp(
         checkRequest++
     }
 
-    val showingSecondaryPage = currentPage == AppPage.AUTOMATIC_SYNC_EVENTS
-    BackHandler(enabled = showingSecondaryPage) { currentPage = AppPage.HOME }
+    val secondaryParentPage = when (currentPage) {
+        AppPage.AUTOMATIC_SYNC_EVENTS -> AppPage.HOME
+        AppPage.TEXT_SYNC_HISTORY -> AppPage.SETTINGS
+        else -> null
+    }
+    val showingSecondaryPage = secondaryParentPage != null
+    BackHandler(enabled = showingSecondaryPage) { currentPage = secondaryParentPage!! }
 
     Scaffold(
         topBar = {
             LargeTopAppBar(
                 title = { Text(currentPage.title) },
                 navigationIcon = {
-                    if (showingSecondaryPage) {
-                        IconButton(onClick = { currentPage = AppPage.HOME }) {
+                    if (secondaryParentPage != null) {
+                        IconButton(onClick = { currentPage = secondaryParentPage }) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                         }
                     }
@@ -323,14 +334,19 @@ private fun SyncClipboardApp(
                 },
             )
             AppPage.SETTINGS -> SettingsPage(
-                contentPadding,
-                requestTile,
-                extensionState,
-                extensionController,
-                ::showMessage,
-                ::updateServer,
+                contentPadding = contentPadding,
+                requestTile = requestTile,
+                extensionState = extensionState,
+                extensionController = extensionController,
+                showMessage = ::showMessage,
+                onServerChanged = ::updateServer,
+                onOpenTextSyncHistory = { currentPage = AppPage.TEXT_SYNC_HISTORY },
             )
             AppPage.AUTOMATIC_SYNC_EVENTS -> AutomaticSyncEventsPage(
+                contentPadding = contentPadding,
+                showMessage = ::showMessage,
+            )
+            AppPage.TEXT_SYNC_HISTORY -> TextSyncHistoryPage(
                 contentPadding = contentPadding,
                 showMessage = ::showMessage,
             )
@@ -622,6 +638,120 @@ private fun AutomaticSyncEventsPage(
     }
 }
 
+@Composable
+private fun TextSyncHistoryPage(
+    contentPadding: PaddingValues,
+    showMessage: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    val historyStore = remember { TextSyncHistoryStore(context.applicationContext) }
+    val scope = rememberCoroutineScope()
+    var entries by remember { mutableStateOf(emptyList<TextSyncHistoryEntry>()) }
+    var loaded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(historyStore) {
+        runCatching {
+            withContext(Dispatchers.IO) { historyStore.read() }
+        }.onSuccess {
+            entries = it
+        }.onFailure {
+            showMessage("无法读取文本同步历史，请稍后重试")
+        }
+        loaded = true
+    }
+
+    fun deleteEntry(entryId: String) {
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { historyStore.delete(entryId) }
+            }.onSuccess {
+                entries = entries.filterNot { it.id == entryId }
+            }.onFailure {
+                showMessage("无法删除这条文本同步历史，请稍后重试")
+            }
+        }
+    }
+
+    PageColumn(contentPadding) {
+        SectionCard(title = "最近 7 天") {
+            when {
+                !loaded -> CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
+                entries.isEmpty() -> Text(
+                    "还没有文本同步历史。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                else -> entries.asReversed().forEach { entry ->
+                    TextSyncHistoryRow(
+                        entry = entry,
+                        onCopy = {
+                            context.getSystemService(ClipboardManager::class.java).setPrimaryClip(
+                                ClipData.newPlainText("SyncClipboard", entry.text),
+                            )
+                            showMessage("文本已复制")
+                        },
+                        onDelete = { deleteEntry(entry.id) },
+                    )
+                }
+            }
+            if (loaded && entries.isNotEmpty()) {
+                TextButton(
+                    onClick = {
+                        scope.launch {
+                            runCatching {
+                                withContext(Dispatchers.IO) { historyStore.clear() }
+                            }.onSuccess {
+                                entries = emptyList()
+                            }.onFailure {
+                                showMessage("无法清空文本同步历史，请稍后重试")
+                            }
+                        }
+                    },
+                    modifier = Modifier.align(Alignment.End),
+                ) {
+                    Text("清空历史")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TextSyncHistoryRow(
+    entry: TextSyncHistoryEntry,
+    onCopy: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val sourceLabel = when (entry.source) {
+        TextSyncHistorySource.LOCAL -> "来自本机"
+        TextSyncHistorySource.REMOTE -> if (entry.appliedToClipboard) {
+            "来自云端"
+        } else {
+            "来自云端 · 保存在历史"
+        }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            entry.text.take(HISTORY_PREVIEW_LENGTH),
+            style = MaterialTheme.typography.bodyLarge,
+        )
+        Text(
+            "$sourceLabel · ${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(entry.timestampMillis))}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+        ) {
+            TextButton(onClick = onCopy) { Text("复制") }
+            TextButton(onClick = onDelete) { Text("删除") }
+        }
+    }
+}
+
+private const val HISTORY_PREVIEW_LENGTH = 300
+
 private fun automaticSyncEventLabel(event: AutomaticSyncEvent): String {
     val content = when (event.contentType) {
         ClipboardType.TEXT -> "文本"
@@ -720,6 +850,7 @@ private fun SettingsPage(
     extensionController: SystemExtensionController,
     showMessage: (String) -> Unit,
     onServerChanged: (ServerConfig?) -> Unit,
+    onOpenTextSyncHistory: () -> Unit,
 ) {
     val context = LocalContext.current
     val repository = remember { SettingsRepository(context.applicationContext) }
@@ -931,6 +1062,11 @@ private fun SettingsPage(
             settings = advancedSync,
             extensionStatus = extensionState.status,
             onSettingsChange = { saveAdvancedSync(it) },
+        )
+        TextSyncHistorySettingsCard(
+            settings = advancedSync,
+            onSettingsChange = { saveAdvancedSync(it) },
+            onOpenHistory = onOpenTextSyncHistory,
         )
         AutomaticSyncStorageCard(
             settings = advancedSync,
@@ -1352,6 +1488,15 @@ private fun AdvancedSyncSettingsCard(
             onCheckedChange = { onSettingsChange(settings.copy(downloadText = it)) },
         )
         SettingSwitchRow(
+            title = "接收暂停期间的云端更新",
+            detail = "关闭后，恢复自动同步时不改变当前剪贴板。",
+            checked = settings.receivePausedRemoteChanges,
+            enabled = settings.enabled,
+            onCheckedChange = {
+                onSettingsChange(settings.copy(receivePausedRemoteChanges = it))
+            },
+        )
+        SettingSwitchRow(
             title = "自动接收图片",
             detail = if (settings.imageSaveTreeUri == null) {
                 "请先选择图片保存目录。"
@@ -1380,6 +1525,26 @@ private fun AdvancedSyncSettingsCard(
             enabled = settings.enabled,
             onCheckedChange = { onSettingsChange(settings.copy(ignoreSensitiveContent = it)) },
         )
+    }
+}
+
+@Composable
+private fun TextSyncHistorySettingsCard(
+    settings: AdvancedSyncSettings,
+    onSettingsChange: (AdvancedSyncSettings) -> Unit,
+    onOpenHistory: () -> Unit,
+) {
+    SectionCard(title = "文本同步历史") {
+        SettingSwitchRow(
+            title = "保存文本同步历史",
+            detail = "在此设备保留最近 7 天内最多 100 条同步文本。",
+            checked = settings.textHistoryEnabled,
+            enabled = true,
+            onCheckedChange = { onSettingsChange(settings.copy(textHistoryEnabled = it)) },
+        )
+        OutlinedButton(onClick = onOpenHistory, modifier = Modifier.fillMaxWidth()) {
+            Text("查看文本同步历史")
+        }
     }
 }
 

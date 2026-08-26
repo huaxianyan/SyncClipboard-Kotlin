@@ -18,6 +18,7 @@ import android.util.Log
 import com.neko7ina.syncclipboard.bridge.BridgeContract
 import com.neko7ina.syncclipboard.bridge.ISyncBridgeService
 import com.neko7ina.syncclipboard.bridge.ISystemClipboardBridge
+import com.neko7ina.syncclipboard.data.AdvancedSyncSettings
 import com.neko7ina.syncclipboard.data.SettingsRepository
 import com.neko7ina.syncclipboard.data.SyncDirection
 import kotlinx.coroutines.CancellationException
@@ -81,8 +82,12 @@ class SystemBridgeService : Service() {
     private var pendingClipboardText: String? = null
 
     @Volatile
+    private var pendingClipboardTextSensitive = false
+
+    @Volatile
     private var pendingClipboardWrite: PendingClipboardWrite? = null
 
+    private val remoteResumePolicy = RemoteSyncResumePolicy()
     private var pendingUploadJob: Job? = null
     private var clipboardWriteRetryJob: Job? = null
     private var remoteSyncJob: Job? = null
@@ -192,6 +197,12 @@ class SystemBridgeService : Service() {
                 reloadForAnotherProcess = true,
             )
             val settings = repository.loadAdvancedSyncSettings()
+            remoteResumePolicy.onSettingsChanged(
+                receivePausedRemoteChanges = settings.receivePausedRemoteChanges,
+                remoteSyncEnabled = settings.enabled && (
+                    settings.downloadText || settings.downloadImage || settings.downloadFile
+                ),
+            )
             if (!settings.enabled || !settings.uploadText) {
                 clearPendingText()
             } else if (pendingClipboardText == null) {
@@ -226,6 +237,12 @@ class SystemBridgeService : Service() {
         super.onCreate()
         repository = SettingsRepository(this, reloadForAnotherProcess = true)
         val settings = repository.loadAdvancedSyncSettings()
+        remoteResumePolicy.initialize(
+            receivePausedRemoteChanges = settings.receivePausedRemoteChanges,
+            remoteSyncEnabled = settings.enabled && (
+                settings.downloadText || settings.downloadImage || settings.downloadFile
+            ),
+        )
         pendingClipboardText = if (settings.enabled && settings.uploadText) {
             repository.loadPendingAutomaticText()
         } else {
@@ -269,6 +286,7 @@ class SystemBridgeService : Service() {
             repository.clearPendingAutomaticText()
         }
         pendingClipboardText = text
+        pendingClipboardTextSensitive = !persist
     }
 
     @Synchronized
@@ -280,7 +298,12 @@ class SystemBridgeService : Service() {
             repository.clearPendingAutomaticTextIfMatches(expectedText)
         }
         pendingClipboardText = null
+        pendingClipboardTextSensitive = false
     }
+
+    @Synchronized
+    private fun pendingTextSnapshot(): Pair<String, Boolean>? =
+        pendingClipboardText?.let { it to pendingClipboardTextSensitive }
 
     @Synchronized
     private fun requestPendingTextUpload() {
@@ -306,7 +329,7 @@ class SystemBridgeService : Service() {
     }
 
     private fun uploadPendingTextOnce(): Boolean {
-        val text = pendingClipboardText ?: return true
+        val (text, sensitive) = pendingTextSnapshot() ?: return true
         val settings = repository.loadAdvancedSyncSettings()
         if (!settings.enabled || !settings.uploadText) {
             clearPendingText()
@@ -314,7 +337,11 @@ class SystemBridgeService : Service() {
         }
         val previousHash = repository.loadLastAutomaticRemoteHash()
         return runCatching {
-            ClipboardTransferService(this).uploadTextIfChanged(text, previousHash)
+            ClipboardTransferService(this).uploadTextIfChanged(
+                text = text,
+                previousHash = previousHash,
+                recordHistory = !sensitive,
+            )
         }.fold(
             onSuccess = { hash ->
                 pendingUploadFailure = null
@@ -364,6 +391,15 @@ class SystemBridgeService : Service() {
             val server = repository.loadServer() ?: return
             val client = SignalRSyncClient(server, ::handleRemoteProfile)
             try {
+                val settings = repository.loadAdvancedSyncSettings()
+                if (
+                    remoteResumePolicy.shouldEstablishBaseline(
+                        receivePausedRemoteChanges = settings.receivePausedRemoteChanges,
+                        lastRemoteHash = repository.loadLastAutomaticRemoteHash(),
+                    )
+                ) {
+                    transferMutex.withLock { establishRemoteBaseline(settings) }
+                }
                 client.start()
                 if (!shouldRunRemoteSync()) return
                 failureIndex = 0
@@ -387,7 +423,19 @@ class SystemBridgeService : Service() {
                 Log.w(TAG, "SignalR unavailable", error)
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastFallbackPollAt >= FALLBACK_POLL_INTERVAL_MILLIS) {
-                    transferMutex.withLock { pollRemoteClipboard() }
+                    transferMutex.withLock {
+                        val settings = repository.loadAdvancedSyncSettings()
+                        if (
+                            remoteResumePolicy.shouldEstablishBaseline(
+                                receivePausedRemoteChanges = settings.receivePausedRemoteChanges,
+                                lastRemoteHash = repository.loadLastAutomaticRemoteHash(),
+                            )
+                        ) {
+                            establishRemoteBaseline(settings)
+                        } else {
+                            pollRemoteClipboard()
+                        }
+                    }
                     lastFallbackPollAt = now
                 }
             } finally {
@@ -396,6 +444,23 @@ class SystemBridgeService : Service() {
             delay(RECONNECT_DELAYS_MILLIS[failureIndex])
             failureIndex = (failureIndex + 1).coerceAtMost(RECONNECT_DELAYS_MILLIS.lastIndex)
         }
+    }
+
+    private fun establishRemoteBaseline(settings: AdvancedSyncSettings) {
+        val transferService = ClipboardTransferService(this)
+        val payload = transferService.getRemoteClipboard()
+        val sourceHash = if (
+            payload.type == ClipboardType.TEXT &&
+            settings.downloadText &&
+            settings.textHistoryEnabled
+        ) {
+            transferService.captureRemoteTextForHistory(payload)
+        } else {
+            transferService.remoteHash(payload)
+        }
+        repository.saveLastAutomaticRemoteHash(sourceHash)
+        remoteResumePolicy.markBaselineEstablished()
+        remoteTransferFailure = null
     }
 
     private fun handleRemoteProfile(payload: ClipboardPayload) {
@@ -493,6 +558,17 @@ class SystemBridgeService : Service() {
                     try {
                         callback.setClipboardText(pending.text, pending.sourceHash)
                         pendingClipboardWrite = null
+                        repository.loadServer()?.let { server ->
+                            TextSyncHistory.record(
+                                context = this@SystemBridgeService,
+                                enabled = repository.loadAdvancedSyncSettings().textHistoryEnabled,
+                                source = TextSyncHistorySource.REMOTE,
+                                serverId = server.id,
+                                hash = pending.sourceHash,
+                                text = pending.text,
+                                appliedToClipboard = true,
+                            )
+                        }
                         repository.saveLastAutomaticRemoteHash(pending.sourceHash)
                         repository.recordSuccessfulSync(SyncDirection.DOWNLOAD)
                         remoteTransferFailure = null
@@ -586,6 +662,9 @@ class SystemBridgeService : Service() {
         if (!unlocked) {
             clipboardWriteRetryJob?.cancel()
             clipboardWriteRetryJob = null
+            remoteResumePolicy.onAutomaticConditionLost(
+                repository.loadAdvancedSyncSettings().receivePausedRemoteChanges,
+            )
         }
         requestPendingTextUpload()
         requestClipboardWriteRetry()
@@ -596,7 +675,11 @@ class SystemBridgeService : Service() {
         val available = isNetworkAvailable()
         if (networkAvailable == available) return
         networkAvailable = available
-        if (!available && repository.loadAdvancedSyncSettings().enabled) {
+        val settings = repository.loadAdvancedSyncSettings()
+        if (!available) {
+            remoteResumePolicy.onAutomaticConditionLost(settings.receivePausedRemoteChanges)
+        }
+        if (!available && settings.enabled) {
             scope.launch {
                 recordAutomaticSyncEvent(AutomaticSyncEventKind.WAITING_FOR_NETWORK)
             }

@@ -99,6 +99,8 @@ class SettingsRepository(
         downloadImage = preferences.getBoolean(KEY_ADVANCED_DOWNLOAD_IMAGE, false),
         downloadFile = preferences.getBoolean(KEY_ADVANCED_DOWNLOAD_FILE, false),
         ignoreSensitiveContent = preferences.getBoolean(KEY_IGNORE_SENSITIVE_CONTENT, true),
+        textHistoryEnabled = preferences.getBoolean(KEY_TEXT_HISTORY_ENABLED, false),
+        receivePausedRemoteChanges = preferences.getBoolean(KEY_RECEIVE_PAUSED_REMOTE_CHANGES, true),
         imageSaveTreeUri = preferences.getString(KEY_IMAGE_SAVE_TREE_URI, null),
         fileSaveTreeUri = preferences.getString(KEY_FILE_SAVE_TREE_URI, null),
     )
@@ -137,6 +139,8 @@ class SettingsRepository(
                 .putBoolean(KEY_ADVANCED_DOWNLOAD_IMAGE, settings.downloadImage)
                 .putBoolean(KEY_ADVANCED_DOWNLOAD_FILE, settings.downloadFile)
                 .putBoolean(KEY_IGNORE_SENSITIVE_CONTENT, settings.ignoreSensitiveContent)
+                .putBoolean(KEY_TEXT_HISTORY_ENABLED, settings.textHistoryEnabled)
+                .putBoolean(KEY_RECEIVE_PAUSED_REMOTE_CHANGES, settings.receivePausedRemoteChanges)
                 .putNullableString(KEY_IMAGE_SAVE_TREE_URI, settings.imageSaveTreeUri)
                 .putNullableString(KEY_FILE_SAVE_TREE_URI, settings.fileSaveTreeUri)
                 .remove(KEY_POLLING_INTERVAL_SECONDS)
@@ -284,6 +288,8 @@ class SettingsRepository(
         const val KEY_ADVANCED_DOWNLOAD_IMAGE = "advanced_download_image"
         const val KEY_ADVANCED_DOWNLOAD_FILE = "advanced_download_file"
         const val KEY_IGNORE_SENSITIVE_CONTENT = "ignore_sensitive_content"
+        const val KEY_TEXT_HISTORY_ENABLED = "text_history_enabled"
+        const val KEY_RECEIVE_PAUSED_REMOTE_CHANGES = "receive_paused_remote_changes"
         const val KEY_IMAGE_SAVE_TREE_URI = "image_save_tree_uri"
         const val KEY_FILE_SAVE_TREE_URI = "file_save_tree_uri"
         const val KEY_POLLING_INTERVAL_SECONDS = "polling_interval_seconds"
