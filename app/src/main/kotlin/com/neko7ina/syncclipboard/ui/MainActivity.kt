@@ -14,11 +14,19 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -66,8 +74,6 @@ import androidx.compose.material3.SwitchColors
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -125,46 +131,6 @@ import java.util.UUID
 
 private const val PROJECT_URL = "https://github.com/huaxianyan/SyncClipboard-Kotlin"
 
-private val LightColorScheme = lightColorScheme(
-    primary = Color(0xFF0061A4),
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFD1E4FF),
-    onPrimaryContainer = Color(0xFF001D36),
-    secondary = Color(0xFF535F70),
-    onSecondary = Color.White,
-    secondaryContainer = Color(0xFFD7E3F7),
-    onSecondaryContainer = Color(0xFF101C2B),
-    tertiary = Color(0xFF2E7D32),
-    onTertiary = Color.White,
-    background = Color(0xFFF8F9FF),
-    onBackground = Color(0xFF191C20),
-    surface = Color(0xFFF8F9FF),
-    onSurface = Color(0xFF191C20),
-    surfaceVariant = Color(0xFFDFE2EB),
-    onSurfaceVariant = Color(0xFF43474E),
-    outline = Color(0xFF73777F),
-)
-
-private val DarkColorScheme = darkColorScheme(
-    primary = Color(0xFF9ECAFF),
-    onPrimary = Color(0xFF003258),
-    primaryContainer = Color(0xFF00497D),
-    onPrimaryContainer = Color(0xFFD1E4FF),
-    secondary = Color(0xFFBBC7DB),
-    onSecondary = Color(0xFF253140),
-    secondaryContainer = Color(0xFF3B4858),
-    onSecondaryContainer = Color(0xFFD7E3F7),
-    tertiary = Color(0xFF81C784),
-    onTertiary = Color(0xFF003909),
-    background = Color(0xFF111318),
-    onBackground = Color(0xFFE2E2E9),
-    surface = Color(0xFF111318),
-    onSurface = Color(0xFFE2E2E9),
-    surfaceVariant = Color(0xFF43474E),
-    onSurfaceVariant = Color(0xFFC3C6CF),
-    outline = Color(0xFF8D9199),
-)
-
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -203,12 +169,19 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class AppPage(val title: String) {
-    HOME("首页"),
-    SETTINGS("设置"),
-    AUTOMATIC_SYNC_EVENTS("自动同步记录"),
-    TEXT_SYNC_HISTORY("文本同步历史"),
+private enum class AppPage(
+    val title: String,
+    val depth: Int,
+    val order: Int,
+) {
+    HOME("首页", depth = 0, order = 0),
+    SETTINGS("设置", depth = 0, order = 1),
+    AUTOMATIC_SYNC_EVENTS("自动同步记录", depth = 1, order = 0),
+    TEXT_SYNC_HISTORY("文本同步历史", depth = 1, order = 1),
 }
+
+private fun AppPage.isForwardFrom(initial: AppPage): Boolean =
+    depth > initial.depth || depth == initial.depth && order > initial.order
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -291,10 +264,30 @@ private fun SyncClipboardApp(
     Scaffold(
         topBar = {
             LargeTopAppBar(
-                title = { Text(currentPage.title) },
+                title = {
+                    AnimatedContent(
+                        targetState = currentPage,
+                        transitionSpec = {
+                            if (targetState.isForwardFrom(initialState)) {
+                                (fadeIn() + slideInHorizontally { width -> width / 4 }) togetherWith
+                                    (fadeOut() + slideOutHorizontally { width -> -width / 4 })
+                            } else {
+                                (fadeIn() + slideInHorizontally { width -> -width / 4 }) togetherWith
+                                    (fadeOut() + slideOutHorizontally { width -> width / 4 })
+                            }
+                        },
+                        label = "top bar title",
+                    ) { page ->
+                        Text(page.title)
+                    }
+                },
                 navigationIcon = {
-                    if (secondaryParentPage != null) {
-                        IconButton(onClick = { currentPage = secondaryParentPage }) {
+                    AnimatedVisibility(
+                        visible = secondaryParentPage != null,
+                        enter = fadeIn() + slideInHorizontally { width -> -width },
+                        exit = fadeOut() + slideOutHorizontally { width -> -width },
+                    ) {
+                        IconButton(onClick = { secondaryParentPage?.let { currentPage = it } }) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                         }
                     }
@@ -302,7 +295,11 @@ private fun SyncClipboardApp(
             )
         },
         bottomBar = {
-            if (!showingSecondaryPage) {
+            AnimatedVisibility(
+                visible = !showingSecondaryPage,
+                enter = fadeIn() + slideInVertically { height -> height / 2 },
+                exit = fadeOut() + slideOutVertically { height -> height / 2 },
+            ) {
                 NavigationBar {
                     NavigationBarItem(
                         selected = currentPage == AppPage.HOME,
@@ -321,35 +318,50 @@ private fun SyncClipboardApp(
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { contentPadding ->
-        when (currentPage) {
-            AppPage.HOME -> DashboardPage(
-                contentPadding = contentPadding,
-                extensionState = extensionState,
-                server = server,
-                connectionStatus = connectionStatus,
-                connectionFailure = connectionFailure,
-                onRetryConnection = { checkRequest++ },
-                onOpenAutomaticSyncEvents = {
-                    currentPage = AppPage.AUTOMATIC_SYNC_EVENTS
-                },
-            )
-            AppPage.SETTINGS -> SettingsPage(
-                contentPadding = contentPadding,
-                requestTile = requestTile,
-                extensionState = extensionState,
-                extensionController = extensionController,
-                showMessage = ::showMessage,
-                onServerChanged = ::updateServer,
-                onOpenTextSyncHistory = { currentPage = AppPage.TEXT_SYNC_HISTORY },
-            )
-            AppPage.AUTOMATIC_SYNC_EVENTS -> AutomaticSyncEventsPage(
-                contentPadding = contentPadding,
-                showMessage = ::showMessage,
-            )
-            AppPage.TEXT_SYNC_HISTORY -> TextSyncHistoryPage(
-                contentPadding = contentPadding,
-                showMessage = ::showMessage,
-            )
+        AnimatedContent(
+            targetState = currentPage,
+            transitionSpec = {
+                if (targetState.isForwardFrom(initialState)) {
+                    (fadeIn() + slideInHorizontally { width -> width / 3 }) togetherWith
+                        (fadeOut() + slideOutHorizontally { width -> -width / 3 })
+                } else {
+                    (fadeIn() + slideInHorizontally { width -> -width / 3 }) togetherWith
+                        (fadeOut() + slideOutHorizontally { width -> width / 3 })
+                }
+            },
+            modifier = Modifier.fillMaxSize(),
+            label = "page transition",
+        ) { targetPage ->
+            when (targetPage) {
+                AppPage.HOME -> DashboardPage(
+                    contentPadding = contentPadding,
+                    extensionState = extensionState,
+                    server = server,
+                    connectionStatus = connectionStatus,
+                    connectionFailure = connectionFailure,
+                    onRetryConnection = { checkRequest++ },
+                    onOpenAutomaticSyncEvents = {
+                        currentPage = AppPage.AUTOMATIC_SYNC_EVENTS
+                    },
+                )
+                AppPage.SETTINGS -> SettingsPage(
+                    contentPadding = contentPadding,
+                    requestTile = requestTile,
+                    extensionState = extensionState,
+                    extensionController = extensionController,
+                    showMessage = ::showMessage,
+                    onServerChanged = ::updateServer,
+                    onOpenTextSyncHistory = { currentPage = AppPage.TEXT_SYNC_HISTORY },
+                )
+                AppPage.AUTOMATIC_SYNC_EVENTS -> AutomaticSyncEventsPage(
+                    contentPadding = contentPadding,
+                    showMessage = ::showMessage,
+                )
+                AppPage.TEXT_SYNC_HISTORY -> TextSyncHistoryPage(
+                    contentPadding = contentPadding,
+                    showMessage = ::showMessage,
+                )
+            }
         }
     }
 }
@@ -404,13 +416,17 @@ private fun ConnectionCard(
     onRetry: () -> Unit,
 ) {
     val statusColor = when (status) {
-        ConnectionStatus.CONNECTED -> MaterialTheme.colorScheme.tertiary
+        ConnectionStatus.CONNECTED -> successIndicatorColor()
         ConnectionStatus.LOADING -> warningIndicatorColor()
         ConnectionStatus.FAILED,
         ConnectionStatus.CREDENTIALS_UNAVAILABLE -> MaterialTheme.colorScheme.error
         ConnectionStatus.CHECKING -> warningIndicatorColor()
         ConnectionStatus.NOT_CONFIGURED -> MaterialTheme.colorScheme.outline
     }
+    val animatedStatusColor by animateColorAsState(
+        targetValue = statusColor,
+        label = "server status color",
+    )
     val title = when (status) {
         ConnectionStatus.CONNECTED -> "连接正常"
         ConnectionStatus.LOADING -> "正在读取服务器配置"
@@ -438,18 +454,22 @@ private fun ConnectionCard(
             Box(
                 modifier = Modifier
                     .size(16.dp)
-                    .background(statusColor, CircleShape),
+                    .background(animatedStatusColor, CircleShape),
             )
-            Column(
+            AnimatedContent(
+                targetState = title to detail,
+                transitionSpec = { fadeIn() togetherWith fadeOut() },
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(title, style = MaterialTheme.typography.titleMedium)
-                Text(
-                    detail,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                label = "server status",
+            ) { (animatedTitle, animatedDetail) ->
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(animatedTitle, style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        animatedDetail,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
         if (server != null) {
@@ -534,11 +554,15 @@ private fun AutomaticSyncCard(
         else -> "请稍候。"
     }
     val statusColor = when {
-        running -> MaterialTheme.colorScheme.tertiary
+        running -> successIndicatorColor()
         warning -> warningIndicatorColor()
         failed -> MaterialTheme.colorScheme.error
         else -> MaterialTheme.colorScheme.outline
     }
+    val animatedStatusColor by animateColorAsState(
+        targetValue = statusColor,
+        label = "automatic sync status color",
+    )
 
     SectionCard(title = "自动同步") {
         Row(
@@ -549,15 +573,22 @@ private fun AutomaticSyncCard(
             Box(
                 modifier = Modifier
                     .size(16.dp)
-                    .background(statusColor, CircleShape),
+                    .background(animatedStatusColor, CircleShape),
             )
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(title, style = MaterialTheme.typography.titleMedium)
-                Text(
-                    detail,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            AnimatedContent(
+                targetState = title to detail,
+                transitionSpec = { fadeIn() togetherWith fadeOut() },
+                modifier = Modifier.weight(1f),
+                label = "automatic sync status",
+            ) { (animatedTitle, animatedDetail) ->
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(animatedTitle, style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        animatedDetail,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
         if (running && extensionState.lastClipboardEventTime > 0L) {
@@ -797,6 +828,10 @@ private fun syncFailureAction(failure: SyncFailureKind?): String = when (failure
     SyncFailureKind.UNKNOWN,
     null -> "请重新检查服务器设置"
 }
+
+@Composable
+private fun successIndicatorColor(): Color =
+    if (isSystemInDarkTheme()) Color(0xFF81C784) else Color(0xFF2E7D32)
 
 @Composable
 private fun warningIndicatorColor(): Color =
@@ -1767,6 +1802,7 @@ private fun SectionCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .animateContentSize()
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -1778,10 +1814,4 @@ private fun SectionCard(
             content()
         }
     }
-}
-
-@Composable
-private fun SyncClipboardTheme(content: @Composable () -> Unit) {
-    val colors = if (isSystemInDarkTheme()) DarkColorScheme else LightColorScheme
-    MaterialTheme(colorScheme = colors, content = content)
 }
