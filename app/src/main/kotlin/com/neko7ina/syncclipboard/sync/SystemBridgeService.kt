@@ -117,6 +117,11 @@ class SystemBridgeService : Service() {
                 incompatibleBridgeDetected = true
                 return BridgeContract.INCOMPATIBLE
             }
+            val bridgeBinder = bridge.asBinder()
+            if (systemBridge?.asBinder() == bridgeBinder && bridgeBinder.isBinderAlive) {
+                requestClipboardWriteRetry()
+                return BridgeContract.REGISTERED
+            }
             Log.i(TAG, "System bridge registered with protocol $protocolVersion")
             incompatibleBridgeDetected = false
             disconnectSystemBridge(restartRemoteSync = false)

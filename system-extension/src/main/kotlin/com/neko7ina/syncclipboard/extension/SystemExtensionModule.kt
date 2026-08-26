@@ -71,11 +71,10 @@ private object SystemClipboardConnector {
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, service: IBinder) {
             host = ISyncBridgeService.Stub.asInterface(service)
-            runCatching {
-                host?.registerSystemBridge(BridgeContract.PROTOCOL_VERSION, bridgeCallback)
-            }.onSuccess { result ->
-                if (result == BridgeContract.REGISTERED) notifyHostDeviceLockState()
-            }.onFailure {
+            if (ensureBridgeRegistered()) {
+                scheduleRegistrationCheck()
+                notifyHostDeviceLockState()
+            } else {
                 resetBinding()
             }
         }
@@ -113,6 +112,10 @@ private object SystemClipboardConnector {
         } else {
             false
         }
+        if (!ensureBridgeRegistered()) {
+            resetBinding()
+            return@OnPrimaryClipChangedListener
+        }
         runCatching { host?.onClipboardText(text, sensitive) }
             .onFailure { resetBinding() }
     }
@@ -136,13 +139,28 @@ private object SystemClipboardConnector {
 
     private fun notifyHostDeviceLockState(locked: Boolean? = null) {
         val appContext = context ?: return
+        if (!ensureBridgeRegistered()) {
+            resetBinding()
+            return
+        }
         val deviceLocked = locked ?: appContext.getSystemService(KeyguardManager::class.java)
             .isDeviceLocked
         runCatching { host?.onDeviceLockStateChanged(deviceLocked) }
             .onFailure { resetBinding() }
     }
 
+    private fun ensureBridgeRegistered(): Boolean {
+        val currentHost = host ?: return false
+        return runCatching {
+            currentHost.registerSystemBridge(
+                BridgeContract.PROTOCOL_VERSION,
+                bridgeCallback,
+            ) == BridgeContract.REGISTERED
+        }.getOrDefault(false)
+    }
+
     private fun resetBinding() {
+        handler.removeCallbacks(registrationCheckRunnable)
         host = null
         if (bound) {
             context?.let { runCatching { it.unbindService(serviceConnection) } }
@@ -154,6 +172,19 @@ private object SystemClipboardConnector {
     private fun scheduleBind() {
         handler.removeCallbacks(reconnectRunnable)
         handler.postDelayed(reconnectRunnable, RECONNECT_DELAY_MILLIS)
+    }
+
+    private val registrationCheckRunnable = Runnable {
+        if (ensureBridgeRegistered()) {
+            scheduleRegistrationCheck()
+        } else {
+            resetBinding()
+        }
+    }
+
+    private fun scheduleRegistrationCheck() {
+        handler.removeCallbacks(registrationCheckRunnable)
+        handler.postDelayed(registrationCheckRunnable, REGISTRATION_CHECK_INTERVAL_MILLIS)
     }
 
     private fun bindHost() {
@@ -169,4 +200,5 @@ private object SystemClipboardConnector {
     }
 
     private const val RECONNECT_DELAY_MILLIS = 5_000L
+    private const val REGISTRATION_CHECK_INTERVAL_MILLIS = 5 * 60 * 1_000L
 }
