@@ -481,7 +481,7 @@ private fun ConnectionCard(
             }
         }
         if (server != null) {
-            Button(
+            FilledTonalButton(
                 onClick = onRetry,
                 enabled = status != ConnectionStatus.CHECKING,
                 modifier = Modifier.fillMaxWidth(),
