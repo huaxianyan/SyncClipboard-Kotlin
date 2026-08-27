@@ -48,6 +48,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -175,9 +176,9 @@ private enum class AppPage(
     val order: Int,
 ) {
     HOME("首页", depth = 0, order = 0),
-    SETTINGS("设置", depth = 0, order = 1),
+    TEXT_SYNC_HISTORY("文本同步历史", depth = 0, order = 1),
+    SETTINGS("设置", depth = 0, order = 2),
     AUTOMATIC_SYNC_EVENTS("自动同步记录", depth = 1, order = 0),
-    TEXT_SYNC_HISTORY("文本同步历史", depth = 1, order = 1),
 }
 
 private fun AppPage.isForwardFrom(initial: AppPage): Boolean =
@@ -255,7 +256,6 @@ private fun SyncClipboardApp(
 
     val secondaryParentPage = when (currentPage) {
         AppPage.AUTOMATIC_SYNC_EVENTS -> AppPage.HOME
-        AppPage.TEXT_SYNC_HISTORY -> AppPage.SETTINGS
         else -> null
     }
     val showingSecondaryPage = secondaryParentPage != null
@@ -297,8 +297,8 @@ private fun SyncClipboardApp(
         bottomBar = {
             AnimatedVisibility(
                 visible = !showingSecondaryPage,
-                enter = fadeIn() + slideInVertically { height -> height / 2 },
-                exit = fadeOut() + slideOutVertically { height -> height / 2 },
+                enter = fadeIn() + slideInVertically { height -> height / 2 } + expandVertically(),
+                exit = fadeOut() + slideOutVertically { height -> height / 2 } + shrinkVertically(),
             ) {
                 NavigationBar {
                     NavigationBarItem(
@@ -306,6 +306,12 @@ private fun SyncClipboardApp(
                         onClick = { currentPage = AppPage.HOME },
                         icon = { Icon(Icons.Default.Home, contentDescription = null) },
                         label = { Text("首页") },
+                    )
+                    NavigationBarItem(
+                        selected = currentPage == AppPage.TEXT_SYNC_HISTORY,
+                        onClick = { currentPage = AppPage.TEXT_SYNC_HISTORY },
+                        icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
+                        label = { Text("历史") },
                     )
                     NavigationBarItem(
                         selected = currentPage == AppPage.SETTINGS,
