@@ -27,6 +27,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -52,6 +53,9 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonColors
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -71,8 +75,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchColors
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -479,7 +481,7 @@ private fun ConnectionCard(
             }
         }
         if (server != null) {
-            OutlinedButton(
+            Button(
                 onClick = onRetry,
                 enabled = status != ConnectionStatus.CHECKING,
                 modifier = Modifier.fillMaxWidth(),
@@ -608,7 +610,7 @@ private fun AutomaticSyncCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        OutlinedButton(onClick = onOpenEvents, modifier = Modifier.fillMaxWidth()) {
+        FilledTonalButton(onClick = onOpenEvents, modifier = Modifier.fillMaxWidth()) {
             Text("查看自动同步记录")
         }
     }
@@ -654,7 +656,7 @@ private fun AutomaticSyncEventsPage(
                 }
             }
             if (loaded && events.isNotEmpty()) {
-                TextButton(
+                FilledTonalButton(
                     onClick = {
                         scope.launch {
                             runCatching {
@@ -667,6 +669,7 @@ private fun AutomaticSyncEventsPage(
                         }
                     },
                     modifier = Modifier.align(Alignment.End),
+                    colors = dangerButtonColors(),
                 ) {
                     Text("清除记录")
                 }
@@ -732,7 +735,7 @@ private fun TextSyncHistoryPage(
                 }
             }
             if (loaded && entries.isNotEmpty()) {
-                TextButton(
+                FilledTonalButton(
                     onClick = {
                         scope.launch {
                             runCatching {
@@ -745,6 +748,7 @@ private fun TextSyncHistoryPage(
                         }
                     },
                     modifier = Modifier.align(Alignment.End),
+                    colors = dangerButtonColors(),
                 ) {
                     Text("清空历史")
                 }
@@ -779,10 +783,18 @@ private fun TextSyncHistoryRow(
         )
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
         ) {
-            TextButton(onClick = onCopy) { Text("复制") }
-            TextButton(onClick = onDelete) { Text("删除") }
+            FilledTonalButton(onClick = onCopy) { Text("复制") }
+            OutlinedButton(
+                onClick = onDelete,
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error,
+                ),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
+            ) {
+                Text("删除")
+            }
         }
     }
 }
@@ -834,6 +846,12 @@ private fun syncFailureAction(failure: SyncFailureKind?): String = when (failure
     SyncFailureKind.UNKNOWN,
     null -> "请重新检查服务器设置"
 }
+
+@Composable
+private fun dangerButtonColors(): ButtonColors = ButtonDefaults.filledTonalButtonColors(
+    containerColor = MaterialTheme.colorScheme.errorContainer,
+    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+)
 
 @Composable
 private fun successIndicatorColor(): Color =
@@ -1043,10 +1061,11 @@ private fun SettingsPage(
                             ),
                         )
                     },
+                    colors = dangerButtonColors(),
                 ) { Text("继续卸载") }
             },
             dismissButton = {
-                FilledTonalButton(onClick = { showUninstallConfirmation = false }) {
+                TextButton(onClick = { showUninstallConfirmation = false }) {
                     Text("取消")
                 }
             },
@@ -1083,12 +1102,13 @@ private fun SettingsPage(
                             }
                         }
                     },
+                    colors = dangerButtonColors(),
                 ) {
-                    Text("删除", color = MaterialTheme.colorScheme.error)
+                    Text("删除")
                 }
             },
             dismissButton = {
-                FilledTonalButton(onClick = { serverPendingDeletion = null }) {
+                TextButton(onClick = { serverPendingDeletion = null }) {
                     Text("取消")
                 }
             },
@@ -1438,7 +1458,6 @@ private fun ServerEditorCard(
             }
             Switch(
                 checked = trustInsecure,
-                colors = tonalSwitchColors(),
                 onCheckedChange = onTrustInsecureChange,
             )
         }
@@ -1464,7 +1483,7 @@ private fun ServerEditorCard(
             ) {
                 Text("取消")
             }
-            FilledTonalButton(
+            Button(
                 onClick = onSave,
                 enabled = !saving && !testing,
                 modifier = Modifier.weight(1f),
@@ -1477,12 +1496,13 @@ private fun ServerEditorCard(
             }
         }
         onDelete?.let {
-            TextButton(
+            FilledTonalButton(
                 onClick = it,
                 enabled = !saving && !testing,
                 modifier = Modifier.fillMaxWidth(),
+                colors = dangerButtonColors(),
             ) {
-                Text("删除服务器方案", color = MaterialTheme.colorScheme.error)
+                Text("删除服务器方案")
             }
         }
     }
@@ -1583,7 +1603,7 @@ private fun TextSyncHistorySettingsCard(
             enabled = true,
             onCheckedChange = { onSettingsChange(settings.copy(textHistoryEnabled = it)) },
         )
-        OutlinedButton(onClick = onOpenHistory, modifier = Modifier.fillMaxWidth()) {
+        FilledTonalButton(onClick = onOpenHistory, modifier = Modifier.fillMaxWidth()) {
             Text("查看文本同步历史")
         }
     }
@@ -1678,8 +1698,12 @@ private fun SystemExtensionCard(
             Text("重新检查")
         }
         if (installed) {
-            TextButton(onClick = onUninstall, modifier = Modifier.fillMaxWidth()) {
-                Text("卸载系统扩展", color = MaterialTheme.colorScheme.error)
+            FilledTonalButton(
+                onClick = onUninstall,
+                modifier = Modifier.fillMaxWidth(),
+                colors = dangerButtonColors(),
+            ) {
+                Text("卸载系统扩展")
             }
         }
     }
@@ -1709,19 +1733,10 @@ private fun SettingSwitchRow(
         Switch(
             checked = checked,
             enabled = enabled,
-            colors = tonalSwitchColors(),
             onCheckedChange = onCheckedChange,
         )
     }
 }
-
-@Composable
-private fun tonalSwitchColors(): SwitchColors = SwitchDefaults.colors(
-    checkedThumbColor = MaterialTheme.colorScheme.onSecondaryContainer,
-    checkedTrackColor = MaterialTheme.colorScheme.secondaryContainer,
-    disabledCheckedThumbColor = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.38f),
-    disabledCheckedTrackColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.38f),
-)
 
 @Composable
 private fun LicenseDialog(onDismiss: () -> Unit) {
@@ -1748,7 +1763,7 @@ private fun LicenseDialog(onDismiss: () -> Unit) {
             )
         },
         confirmButton = {
-            FilledTonalButton(onClick = onDismiss) {
+            Button(onClick = onDismiss) {
                 Text("关闭")
             }
         },
