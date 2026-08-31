@@ -104,6 +104,8 @@ Release 构建完成后，`scripts/verify-release.sh` 会检查标签与版本�
 RELEASE_TAG=vX.Y.Z ./scripts/verify-release.sh
 ```
 
+Windows 请使用 Git Bash，确保 `awk`、`grep`、`jar`、`java` 和 `sha256sum` 可用。校验工具缺失时脚本会停止，不会生成无效的 `SHA256SUMS`。
+
 手动运行工作流会上传签名 APK 和 `SHA256SUMS` Artifact；推送 `v*` 标签还会创建对应的 GitHub Release。
 
 ## 模块版本

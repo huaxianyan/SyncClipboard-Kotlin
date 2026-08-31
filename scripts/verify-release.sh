@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+for required_command in awk grep jar java sha256sum; do
+    if ! command -v "$required_command" >/dev/null 2>&1; then
+        echo "Missing release verification command: $required_command" >&2
+        exit 1
+    fi
+done
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION_CODE="$(awk -F= '$1 == "syncClipboard.versionCode" { print $2 }' "$ROOT_DIR/gradle.properties")"
 VERSION_NAME="$(awk -F= '$1 == "syncClipboard.versionName" { print $2 }' "$ROOT_DIR/gradle.properties")"
