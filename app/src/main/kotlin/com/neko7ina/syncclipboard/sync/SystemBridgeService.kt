@@ -426,18 +426,24 @@ class SystemBridgeService : Service() {
                 Log.w(TAG, "SignalR unavailable", error)
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastFallbackPollAt >= FALLBACK_POLL_INTERVAL_MILLIS) {
-                    transferMutex.withLock {
-                        val settings = repository.loadAdvancedSyncSettings()
-                        if (
-                            remoteResumePolicy.shouldEstablishBaseline(
-                                receivePausedRemoteChanges = settings.receivePausedRemoteChanges,
-                                lastRemoteHash = repository.loadLastAutomaticRemoteHash(),
-                            )
-                        ) {
-                            establishRemoteBaseline(settings)
-                        } else {
-                            pollRemoteClipboard()
+                    runCatching {
+                        transferMutex.withLock {
+                            val settings = repository.loadAdvancedSyncSettings()
+                            if (
+                                remoteResumePolicy.shouldEstablishBaseline(
+                                    receivePausedRemoteChanges = settings.receivePausedRemoteChanges,
+                                    lastRemoteHash = repository.loadLastAutomaticRemoteHash(),
+                                )
+                            ) {
+                                establishRemoteBaseline(settings)
+                            } else {
+                                pollRemoteClipboard()
+                            }
                         }
+                    }.onFailure { fallbackError ->
+                        if (fallbackError is CancellationException) throw fallbackError
+                        remoteTransferFailure = fallbackError.toSyncFailureKind()
+                        Log.w(TAG, "Automatic fallback download failed", fallbackError)
                     }
                     lastFallbackPollAt = now
                 }
