@@ -14,6 +14,8 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
+import android.os.RemoteException
 import com.neko7ina.syncclipboard.bridge.BridgeContract
 import com.neko7ina.syncclipboard.bridge.ISyncBridgeService
 import com.neko7ina.syncclipboard.bridge.ISystemClipboardBridge
@@ -45,6 +47,8 @@ private object SystemClipboardConnector {
     private var context: Context? = null
     private var host: ISyncBridgeService? = null
     private var bound = false
+
+    @Volatile
     private var suppressedText: String? = null
 
     private val keyguardListener = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -57,12 +61,14 @@ private object SystemClipboardConnector {
 
     private val bridgeCallback = object : ISystemClipboardBridge.Stub() {
         override fun setClipboardText(text: String, sourceHash: String) {
-            handler.post {
-                val appContext = context ?: return@post
-                suppressedText = text
-                appContext.getSystemService(ClipboardManager::class.java)
-                    .setPrimaryClip(ClipData.newPlainText("SyncClipboard", text))
-            }
+            val appContext = context ?: throw RemoteException("Extension context unavailable")
+            val locked = appContext.getSystemService(KeyguardManager::class.java).isDeviceLocked
+            val interactive = appContext.getSystemService(PowerManager::class.java).isInteractive
+            if (locked || !interactive) throw RemoteException("Device is locked")
+
+            suppressedText = text
+            appContext.getSystemService(ClipboardManager::class.java)
+                .setPrimaryClip(ClipData.newPlainText("SyncClipboard", text))
         }
 
         override fun getProtocolVersion(): Int = BridgeContract.PROTOCOL_VERSION

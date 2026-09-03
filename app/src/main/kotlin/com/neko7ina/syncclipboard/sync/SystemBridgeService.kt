@@ -41,6 +41,8 @@ private data class PendingClipboardWrite(
     val sourceHash: String,
 )
 
+private class RemoteClipboardWritePausedException : Exception()
+
 class SystemBridgeService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val transferMutex = Mutex()
@@ -203,6 +205,7 @@ class SystemBridgeService : Service() {
                     settings.downloadText || settings.downloadImage || settings.downloadFile
                 ),
             )
+            if (!settings.receivePausedRemoteChanges) pendingClipboardWrite = null
             if (!settings.enabled || !settings.uploadText) {
                 clearPendingText()
             } else if (pendingClipboardText == null) {
@@ -467,6 +470,7 @@ class SystemBridgeService : Service() {
         scope.launch {
             if (!shouldRunRemoteSync()) return@launch
             transferMutex.withLock {
+                if (!shouldRunRemoteSync()) return@withLock
                 val callback = systemBridge ?: return@withLock
                 val previousHash = repository.loadLastAutomaticRemoteHash()
                 val settings = repository.loadAdvancedSyncSettings()
@@ -485,6 +489,7 @@ class SystemBridgeService : Service() {
                         )
                     }
                 }.onFailure {
+                    if (it is RemoteClipboardWritePausedException) return@onFailure
                     remoteTransferFailure = it.toSyncFailureKind()
                     recordAutomaticSyncEvent(
                         AutomaticSyncEventKind.DOWNLOAD_FAILED,
@@ -498,6 +503,7 @@ class SystemBridgeService : Service() {
     }
 
     private fun pollRemoteClipboard() {
+        if (!shouldRunRemoteSync()) return
         val callback = systemBridge ?: return
         val settings = repository.loadAdvancedSyncSettings()
         if (!settings.enabled) return
@@ -516,6 +522,7 @@ class SystemBridgeService : Service() {
                 recordAutomaticSyncEvent(AutomaticSyncEventKind.DOWNLOAD_SUCCEEDED)
             }
         }.onFailure {
+            if (it is RemoteClipboardWritePausedException) return@onFailure
             remoteTransferFailure = it.toSyncFailureKind()
             recordAutomaticSyncEvent(
                 AutomaticSyncEventKind.DOWNLOAD_FAILED,
@@ -530,10 +537,17 @@ class SystemBridgeService : Service() {
         text: String,
         sourceHash: String,
     ) {
+        if (!deviceUnlocked || !isDeviceUnlocked()) {
+            throw RemoteClipboardWritePausedException()
+        }
         try {
             callback.setClipboardText(text, sourceHash)
             pendingClipboardWrite = null
         } catch (error: RemoteException) {
+            if (!isDeviceUnlocked()) {
+                pendingClipboardWrite = null
+                throw RemoteClipboardWritePausedException()
+            }
             pendingClipboardWrite = PendingClipboardWrite(text, sourceHash)
             requestClipboardWriteRetry()
             throw SyncException(
@@ -662,9 +676,9 @@ class SystemBridgeService : Service() {
         if (!unlocked) {
             clipboardWriteRetryJob?.cancel()
             clipboardWriteRetryJob = null
-            remoteResumePolicy.onAutomaticConditionLost(
-                repository.loadAdvancedSyncSettings().receivePausedRemoteChanges,
-            )
+            val settings = repository.loadAdvancedSyncSettings()
+            remoteResumePolicy.onAutomaticConditionLost(settings.receivePausedRemoteChanges)
+            if (!settings.receivePausedRemoteChanges) pendingClipboardWrite = null
         }
         requestPendingTextUpload()
         requestClipboardWriteRetry()
@@ -678,6 +692,7 @@ class SystemBridgeService : Service() {
         val settings = repository.loadAdvancedSyncSettings()
         if (!available) {
             remoteResumePolicy.onAutomaticConditionLost(settings.receivePausedRemoteChanges)
+            if (!settings.receivePausedRemoteChanges) pendingClipboardWrite = null
         }
         if (!available && settings.enabled) {
             scope.launch {
