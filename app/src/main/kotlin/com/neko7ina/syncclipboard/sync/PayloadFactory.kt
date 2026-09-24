@@ -13,7 +13,7 @@ object PayloadFactory {
             throw SyncException("剪贴板中没有可上传的文本，请先复制内容")
         }
 
-        val hash = sha256(normalized.toByteArray(StandardCharsets.UTF_8))
+        val hash = textHash(text)
         if (normalized.length <= TEXT_FILE_THRESHOLD) {
             return PreparedUpload(
                 ClipboardPayload(
@@ -67,6 +67,15 @@ object PayloadFactory {
     fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256")
         .digest(bytes)
         .joinToString(separator = "") { "%02X".format(it) }
+
+    /**
+     * 文本内容的哈希，与 [text] 使用完全相同的归一化方式（trim 后按 UTF-8 取 SHA-256）。
+     *
+     * 本机剪贴板的内容也用它登记，才能和远端 payload 的哈希直接比对——两边算法必须同源，
+     * 否则比对永远不成立。
+     */
+    fun textHash(text: String): String =
+        sha256(text.trim().toByteArray(StandardCharsets.UTF_8))
 
     fun fileHash(fileName: String, contentHash: String): String = sha256(
         "${safeFileName(fileName)}|$contentHash".toByteArray(StandardCharsets.UTF_8),

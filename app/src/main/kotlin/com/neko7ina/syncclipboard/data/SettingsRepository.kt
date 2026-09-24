@@ -2,6 +2,7 @@ package com.neko7ina.syncclipboard.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.SystemClock
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
@@ -110,6 +111,26 @@ class SettingsRepository(
 
     fun saveLastAutomaticRemoteHash(hash: String) {
         preferences.edit().putString(KEY_LAST_AUTOMATIC_REMOTE_HASH, hash).apply()
+    }
+
+    /**
+     * 本机剪贴板当前内容的哈希；不可信或从未登记时为 null。
+     *
+     * 与 [loadLastAutomaticRemoteHash] 的区别是语义：「上次同步点」表达「这个哈希我处理过」，
+     * 本方法表达「剪贴板里现在就是它」。判断远端内容要不要写进剪贴板只能靠后者。
+     */
+    fun loadLocalClipboardHash(): String? = LocalClipboardState.usableHash(
+        nowElapsedRealtimeMillis = SystemClock.elapsedRealtime(),
+        recordedElapsedRealtimeMillis = preferences.getLong(KEY_LOCAL_CLIPBOARD_HASH_ELAPSED, 0L),
+        recordedHash = preferences.getString(KEY_LOCAL_CLIPBOARD_HASH, null),
+    )
+
+    /** 登记本机剪贴板内容。记录同时带上开机计时器，供重启后判失效。 */
+    fun saveLocalClipboardHash(hash: String) {
+        preferences.edit()
+            .putString(KEY_LOCAL_CLIPBOARD_HASH, hash)
+            .putLong(KEY_LOCAL_CLIPBOARD_HASH_ELAPSED, SystemClock.elapsedRealtime())
+            .apply()
     }
 
     fun loadPendingAutomaticText(): String? =
@@ -294,6 +315,8 @@ class SettingsRepository(
         const val KEY_FILE_SAVE_TREE_URI = "file_save_tree_uri"
         const val KEY_POLLING_INTERVAL_SECONDS = "polling_interval_seconds"
         const val KEY_LAST_AUTOMATIC_REMOTE_HASH = "last_automatic_remote_hash"
+    const val KEY_LOCAL_CLIPBOARD_HASH = "local_clipboard_hash"
+    const val KEY_LOCAL_CLIPBOARD_HASH_ELAPSED = "local_clipboard_hash_elapsed_millis"
         const val KEY_PENDING_AUTOMATIC_TEXT = "pending_automatic_text"
     }
 }

@@ -26,6 +26,7 @@ import java.net.InetSocketAddress
 import java.net.Proxy
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManager
@@ -69,6 +70,39 @@ class SyncClipboardClient(
 
     fun testConnection() {
         getClipboard()
+    }
+
+    /**
+     * 查询远端内容在服务器上的生成时间（epoch millis）。
+     *
+     * 官方服务端的当前剪贴板接口（`/SyncClipboard.json`）与 SignalR 推送都不携带时间，
+     * 只有历史记录接口有：`GET /api/history/{Type}-{Hash}` 返回的 `createTime`。
+     *
+     * 语义要点：`createTime` 是该 hash **首次**上传到服务器的时刻，同 hash 重复上传只会
+     * 递增 `version` 并刷新 `lastModified` / `lastAccessed`，**不会**改 `createTime`。
+     * 所以判断「这份内容是不是这段时间才出现的」要用 `createTime`，不能用 `lastModified`。
+     *
+     * 老版本服务端（无 history 接口）、记录已被清理（默认保留 7 天 / 最多 1000 条）、
+     * 或响应无法解析时返回 null，调用方据此保持原有写入行为。
+     */
+    fun getRemoteContentTimestamp(payload: ClipboardPayload): Long? {
+        val hash = payload.hash?.takeIf { it.isNotBlank() } ?: return null
+        val profileId = "${payload.type.wireName}-${hash.uppercase(Locale.ROOT)}"
+        val call = request("api", "history", profileId).get().build()
+        return runCatching {
+            execute(call) { body -> SyncTimestampParser.parse(body.string()) }
+        }.getOrNull()
+    }
+
+    /**
+     * 查询服务器当前时间（epoch millis），用于把本地时刻换算到服务器时钟后再比较。
+     * 服务器未提供 `/api/time` 时返回 null。
+     */
+    fun getServerTimeMillis(): Long? {
+        val call = request("api", "time").get().build()
+        return runCatching {
+            execute(call) { body -> SyncTimestampParser.parse(body.string()) }
+        }.getOrNull()
     }
 
     private fun request(vararg pathSegments: String): Request.Builder {

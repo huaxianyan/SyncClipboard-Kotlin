@@ -21,6 +21,7 @@ import com.neko7ina.syncclipboard.bridge.ISystemClipboardBridge
 import com.neko7ina.syncclipboard.data.AdvancedSyncSettings
 import com.neko7ina.syncclipboard.data.SettingsRepository
 import com.neko7ina.syncclipboard.data.SyncDirection
+import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -88,6 +89,10 @@ class SystemBridgeService : Service() {
 
     @Volatile
     private var pendingClipboardWrite: PendingClipboardWrite? = null
+
+    /** 服务器时钟相对本机时钟的偏移；为 null 时不做陈旧内容判定。 */
+    @Volatile
+    private var remoteClockOffsetMillis: Long? = null
 
     private val remoteResumePolicy = RemoteSyncResumePolicy()
     private var pendingUploadJob: Job? = null
@@ -159,6 +164,9 @@ class SystemBridgeService : Service() {
                 return
             }
             this@SystemBridgeService.lastClipboardEventTime = System.currentTimeMillis()
+            // 登记本机剪贴板的事实。它与同步开关无关：开关关着的时候剪贴板照样会被本地复制改写，
+            // 而这份登记值决定「云端推来的内容还要不要再写一次」。
+            repository.saveLocalClipboardHash(PayloadFactory.textHash(text))
             val settings = repository.loadAdvancedSyncSettings()
             if (!settings.enabled || !settings.uploadText) return
             if (sensitive && settings.ignoreSensitiveContent) return
@@ -374,12 +382,20 @@ class SystemBridgeService : Service() {
     private fun requestRemoteSyncRestart() {
         scope.launch {
             remoteSyncLifecycleMutex.withLock {
-                if (remoteSyncJob?.isActive == true) Log.i(TAG, "Remote sync stopping")
+                val wasRunning = remoteSyncJob?.isActive == true
+                if (wasRunning) Log.i(TAG, "Remote sync stopping")
                 remoteSyncJob?.cancel()
                 remoteSyncJob = null
                 signalRConnected = false
                 signalRFailure = null
                 if (shouldRunRemoteSync()) {
+                    if (!wasRunning) {
+                        // 循环从停摆状态重新启动。不论停摆原因是什么，这段空窗期云端都可能
+                        // 已经产生新内容，一律先要求重建基线，避免把旧内容当成新内容写下去。
+                        remoteResumePolicy.onAutomaticConditionLost(
+                            repository.loadAdvancedSyncSettings().receivePausedRemoteChanges,
+                        )
+                    }
                     Log.i(TAG, "Remote sync starting")
                     remoteSyncJob = scope.launch { runRemoteSyncLoop() }
                 }
@@ -390,6 +406,9 @@ class SystemBridgeService : Service() {
     private suspend fun runRemoteSyncLoop() {
         var failureIndex = 0
         var lastFallbackPollAt = 0L
+        // 独立校准服务器时钟。时间判据不能挂在基线上：基线一旦漏判，
+        // 判据会跟着一起失效，两道防线就变成串联而不是并联。
+        remoteClockOffsetMillis = calibrateServerClock()
         while (currentCoroutineContext().isActive && shouldRunRemoteSync()) {
             val server = repository.loadServer() ?: return
             val client = SignalRSyncClient(server, ::handleRemoteProfile)
@@ -399,6 +418,7 @@ class SystemBridgeService : Service() {
                     remoteResumePolicy.shouldEstablishBaseline(
                         receivePausedRemoteChanges = settings.receivePausedRemoteChanges,
                         lastRemoteHash = repository.loadLastAutomaticRemoteHash(),
+                        canJudgeByContentTime = canJudgeByContentTime(settings),
                     )
                 ) {
                     transferMutex.withLock { establishRemoteBaseline(settings) }
@@ -433,6 +453,7 @@ class SystemBridgeService : Service() {
                                 remoteResumePolicy.shouldEstablishBaseline(
                                     receivePausedRemoteChanges = settings.receivePausedRemoteChanges,
                                     lastRemoteHash = repository.loadLastAutomaticRemoteHash(),
+                                    canJudgeByContentTime = canJudgeByContentTime(settings),
                                 )
                             ) {
                                 establishRemoteBaseline(settings)
@@ -456,6 +477,9 @@ class SystemBridgeService : Service() {
     }
 
     private fun establishRemoteBaseline(settings: AdvancedSyncSettings) {
+        // 取远端内容是阻塞网络请求，先记下代际；若期间又发生了新的暂停，
+        // 这次「陈旧完成」不应清掉刚置上的标志。
+        val generation = remoteResumePolicy.baselineGeneration()
         val transferService = ClipboardTransferService(this)
         val payload = transferService.getRemoteClipboard()
         val sourceHash = if (
@@ -468,7 +492,10 @@ class SystemBridgeService : Service() {
             transferService.remoteHash(payload)
         }
         repository.saveLastAutomaticRemoteHash(sourceHash)
-        remoteResumePolicy.markBaselineEstablished()
+        if (!remoteResumePolicy.markBaselineEstablished(generation)) {
+            Log.i(TAG, "Baseline superseded by a newer pause window, will realign")
+        }
+        recordAutomaticSyncEvent(AutomaticSyncEventKind.BASELINE_ESTABLISHED)
         remoteTransferFailure = null
     }
 
@@ -480,11 +507,21 @@ class SystemBridgeService : Service() {
                 val callback = systemBridge ?: return@withLock
                 val previousHash = repository.loadLastAutomaticRemoteHash()
                 val settings = repository.loadAdvancedSyncSettings()
+                val transferService = ClipboardTransferService(this@SystemBridgeService)
                 runCatching {
-                    ClipboardTransferService(this@SystemBridgeService)
-                        .applyRemoteAutomatically(payload, previousHash, settings) { text, sourceHash ->
-                            writeClipboardText(callback, text, sourceHash)
+                    // 推送只由「别的设备刚改完云端」触发，它本身就是内容「刚刚」到达的证据，
+                    // 因此不走陈旧判定。判据只属于补查路径：那里本机刚经历了一段看不到
+                    // 云端的窗口。套在推送上会把「重新复制一条以前复制过的内容」当成积压——
+                    // 那条内容的 createTime 同样很老，但它确实是用户此刻主动复制的。
+                    //
+                    // 抑制只认本机剪贴板登记值：剪贴板里已经是它，写入才是多余的。
+                    if (remoteContentAlreadyPresent(payload, previousHash, transferService, useLocalClipboardForText = true)) {
+                        null
+                    } else {
+                        transferService.applyRemoteAutomatically(payload, settings) { text, hash ->
+                            writeClipboardText(callback, text, hash)
                         }
+                    }
                 }.onSuccess { newHash ->
                     remoteTransferFailure = null
                     if (newHash != null) {
@@ -514,12 +551,35 @@ class SystemBridgeService : Service() {
         val settings = repository.loadAdvancedSyncSettings()
         if (!settings.enabled) return
         val previousHash = repository.loadLastAutomaticRemoteHash()
+        val transferService = ClipboardTransferService(this)
         runCatching {
-            ClipboardTransferService(this).downloadAutomatically(
+            val payload = transferService.getRemoteClipboard()
+            val sourceHash = transferService.remoteHash(payload)
+            // 顺序不能颠倒：先看本机是不是已经有这份内容（有则什么都不做，省掉一次内容时间
+            // 查询，也避免把刚同步过的正常内容反复归档），再判它是不是窗口里的积压。
+            val alreadyPresent = remoteContentAlreadyPresent(
+                payload,
                 previousHash,
-                settings,
-            ) { text, sourceHash ->
-                writeClipboardText(callback, text, sourceHash)
+                transferService,
+                useLocalClipboardForText = !needsBaselineSuppression(settings),
+            )
+            val staleAge = if (alreadyPresent) null else staleRemoteContentAgeMillis(transferService, payload)
+            when {
+                alreadyPresent -> null
+                staleAge != null -> {
+                    // 归档进本地历史后跳过写入；对齐哈希避免同一份旧内容被反复判定。
+                    archiveStaleRemoteText(transferService, payload)
+                    repository.saveLastAutomaticRemoteHash(sourceHash)
+                    recordAutomaticSyncEvent(
+                        AutomaticSyncEventKind.STALE_WRITE_SKIPPED,
+                        contentType = payload.type,
+                        ageMillis = staleAge,
+                    )
+                    null
+                }
+                else -> transferService.applyRemoteAutomatically(payload, settings) { text, hash ->
+                    writeClipboardText(callback, text, hash)
+                }
             }
         }.onSuccess { newHash ->
             remoteTransferFailure = null
@@ -548,6 +608,8 @@ class SystemBridgeService : Service() {
         }
         try {
             callback.setClipboardText(text, sourceHash)
+            // 剪贴板里现在是它——登记下来，下一次拿同一份内容来时才知道不必再写。
+            repository.saveLocalClipboardHash(sourceHash)
             pendingClipboardWrite = null
         } catch (error: RemoteException) {
             if (!isDeviceUnlocked()) {
@@ -564,6 +626,123 @@ class SystemBridgeService : Service() {
         }
     }
 
+    /**
+     * 本机是不是已经有这份远端内容——是则不必再处理，也不该再写一次。
+     *
+     * 文本看**本机剪贴板登记值**：这是本机此刻的事实，能区分两种情况——内容确实已经躺在剪贴板里
+     * （重复写入多余），和内容只是被同步过、后来剪贴板被清空或被别的内容覆盖（必须再写一次）。
+     *
+     * 历史版本只看「上次同步点」（`lastAutomaticRemoteHash`），而那个字段被上传、下载、归档三条
+     * 路径共用，表达的是「这个哈希我处理过」，不表达「剪贴板里是它」。归档一条停摆期间到达的旧
+     * 内容后它会被对齐，于是同一份内容再被推送时就被静默丢弃——重启后剪贴板被清空，用户就再也
+     * 粘不到它。
+     *
+     * 登记值拿不到（从未登记，或距上次登记之间设备重启过）时按「没有」处理：未知一律不抑制，
+     * 因为把应该出现的内容写进剪贴板总是安全的，而误抑制会让用户拿不到内容。
+     *
+     * [useLocalClipboardForText] 为 false 时退回上次同步点。那是内容时间判据不可用时的基线降级
+     * 路径（老服务端、纯 WebDAV、时钟不可信），窗口内的积压只能靠它阻断。图片与文件没有可读回的
+     * 本机状态，始终看上次同步点。
+     */
+    private fun remoteContentAlreadyPresent(
+        payload: ClipboardPayload,
+        previousHash: String?,
+        transferService: ClipboardTransferService,
+        useLocalClipboardForText: Boolean,
+    ): Boolean {
+        val useLocalClipboard = payload.type == ClipboardType.TEXT && useLocalClipboardForText
+        val reference = if (useLocalClipboard) {
+            repository.loadLocalClipboardHash()
+        } else {
+            previousHash
+        } ?: return false
+        val sourceHash = transferService.remoteHash(payload)
+        if (!sourceHash.equals(reference, ignoreCase = true)) return false
+        if (useLocalClipboard) {
+            // 静默跳过必须在事件表里留痕，否则「明明推来了却没写入」事后完全无法排查。
+            recordAutomaticSyncEvent(
+                AutomaticSyncEventKind.REMOTE_DEDUPED,
+                contentType = payload.type,
+            )
+        }
+        return true
+    }
+
+    /**
+     * 主判据：远端内容是不是「本机看不到云端的那段时间里冒出来的」旧内容。
+     *
+     * 返回内容早于判定时刻的毫秒数，非 null 即表示应当跳过写入。判定只用服务端给出的
+     * `createTime` 与服务器时钟偏移，不依赖任何存活条件的上报，所以循环因为什么原因
+     * 停摆都不影响它——停机不需要谁来枚举，也不需要基线先建好。
+     *
+     * **只用于「补查」这条路径**（连接建立后的那次 HTTP 查询、以及实时通道不通时的
+     * 定时补查），不要用在实时推送路径上。补查时本机刚刚经历了一段看不到云端的窗口，
+     * 此时云端躺着的内容都可能是窗口里积压的；而推送只会在别的设备刚改完云端时触发，
+     * 它本身就是「刚刚」的证据。把判据套到推送上会把「重新复制一条以前复制过的内容」
+     * 也误判成积压——那条内容的 createTime 同样很老，但它是用户此刻主动复制的。
+     *
+     * 任一环节拿不到数据（非文本内容、服务端不支持历史接口、时钟不可信）都返回
+     * null，此时由基线逻辑降级兜底。
+     *
+     * 调用方必须**先**排除「本机已经是这份内容」的情况：[remoteContentAlreadyPresent]。
+     * 历史版本在这里用 `previousHash` 做豁免（「同一个哈希处理过就别再判」），但那个字段被
+     * 上传、下载、归档三条路径共用，归档一条旧内容后它照样被对齐——豁免于是变成漏洞：同一条
+     * 内容在被归档后的下一次补查里会绕过陈旧判定，直接写进剪贴板。
+     */
+    private fun staleRemoteContentAgeMillis(
+        transferService: ClipboardTransferService,
+        payload: ClipboardPayload,
+    ): Long? {
+        // 只有文本有可归档的本地历史；其他类型保持原有下载流程。
+        if (payload.type != ClipboardType.TEXT) return null
+        if (repository.loadAdvancedSyncSettings().receivePausedRemoteChanges) return null
+        val offset = remoteClockOffsetMillis ?: return null
+        val contentTimestamp = transferService.getRemoteContentTimestamp(payload) ?: return null
+        return StaleRemoteContentPolicy.staleAgeMillis(
+            judgedAtMillis = System.currentTimeMillis(),
+            serverClockOffsetMillis = offset,
+            contentCreatedAtMillis = contentTimestamp,
+            graceMillis = STALE_CONTENT_GRACE_MILLIS,
+        )
+    }
+
+    /** 时间判据是否可用；可用时不再需要基线，直接按内容时间判定。 */
+    private fun canJudgeByContentTime(settings: AdvancedSyncSettings): Boolean =
+        !settings.receivePausedRemoteChanges && remoteClockOffsetMillis != null
+
+    /**
+     * 补查路径上是否只能靠「基线」（上次同步点）阻断停摆窗口里到达的内容。
+     *
+     * 条件是两个同时成立：用户开着这个选项，且内容时间判据拿不到。此时没有更准的信息可用，
+     * 基线是唯一手段。其余情况（选项关着、或时间判据可用）都用本机剪贴板登记值——它记录的是
+     * 本机事实，能区分「剪贴板里就是它」和「只是同步过、之后被清空或覆盖」。
+     */
+    private fun needsBaselineSuppression(settings: AdvancedSyncSettings): Boolean =
+        !settings.receivePausedRemoteChanges && remoteClockOffsetMillis == null
+
+    /**
+     * 校准服务器时钟。拿不到、或偏移大到不像话（单位错误、系统时钟错乱）时返回 null，
+     * 让所有时间判定整体降级，而不是拿一个坏值去误杀正常内容。
+     */
+    private fun calibrateServerClock(): Long? {
+        val offset = runCatching { ClipboardTransferService(this).getServerTimeOffsetMillis() }
+            .getOrNull() ?: return null
+        if (abs(offset) > MAX_TRUSTED_CLOCK_OFFSET_MILLIS) {
+            Log.w(TAG, "Server clock offset $offset out of trusted range, content time checks disabled")
+            return null
+        }
+        return offset
+    }
+
+    /** 被跳过写入的旧内容仍要归档进本地历史，用户可以在历史列表里找到它。 */
+    private fun archiveStaleRemoteText(
+        transferService: ClipboardTransferService,
+        payload: ClipboardPayload,
+    ) {
+        runCatching { transferService.captureRemoteTextForHistory(payload) }
+            .onFailure { Log.w(TAG, "Unable to archive stale remote text", it) }
+    }
+
     @Synchronized
     private fun requestClipboardWriteRetry() {
         if (!deviceUnlocked || pendingClipboardWrite == null) return
@@ -577,6 +756,7 @@ class SystemBridgeService : Service() {
                     val callback = systemBridge ?: return@withLock false
                     try {
                         callback.setClipboardText(pending.text, pending.sourceHash)
+                        repository.saveLocalClipboardHash(pending.sourceHash)
                         pendingClipboardWrite = null
                         repository.loadServer()?.let { server ->
                             TextSyncHistory.record(
@@ -610,6 +790,8 @@ class SystemBridgeService : Service() {
                 }
                 if (succeeded) return@launch
             }
+            // 重试预算已用尽：丢弃待写内容，避免它在很久之后被某次扩展重连重新拾起。
+            transferMutex.withLock { pendingClipboardWrite = null }
         }
     }
 
@@ -729,6 +911,11 @@ class SystemBridgeService : Service() {
         systemBridge = null
         clipboardWriteRetryJob?.cancel()
         clipboardWriteRetryJob = null
+        val settings = repository.loadAdvancedSyncSettings()
+        // 扩展 Binder 掉线同样会让自动同步循环停摆，必须与锁屏、断网同等对待。
+        // 否则重新注册后会跳过基线，把停机期间云端产生的旧内容写进剪贴板。
+        remoteResumePolicy.onAutomaticConditionLost(settings.receivePausedRemoteChanges)
+        if (!settings.receivePausedRemoteChanges) pendingClipboardWrite = null
         if (current != null) {
             current.asBinder().unlinkToDeath(bridgeDeathRecipient, 0)
             scope.launch {
@@ -742,8 +929,9 @@ class SystemBridgeService : Service() {
         kind: AutomaticSyncEventKind,
         failure: SyncFailureKind? = null,
         contentType: ClipboardType? = null,
+        ageMillis: Long? = null,
     ) {
-        runCatching { automaticSyncEvents.record(kind, failure, contentType) }
+        runCatching { automaticSyncEvents.record(kind, failure, contentType, ageMillis) }
             .onFailure { Log.w(TAG, "Unable to record automatic sync event", it) }
     }
 
@@ -765,6 +953,15 @@ class SystemBridgeService : Service() {
     private companion object {
         const val TAG = "SystemBridgeService"
         const val FALLBACK_POLL_INTERVAL_MILLIS = 5 * 60 * 1_000L
+
+        /**
+         * 补查时只接收「刚刚」到达云端的内容：早于判定时刻这么多毫秒即视为停机期间
+         * 积压的旧内容，归档进历史而不写剪贴板。容忍时钟采样误差与短期抖动。
+         */
+        const val STALE_CONTENT_GRACE_MILLIS = 5_000L
+
+        /** 服务器时钟偏移超过这个量级就认为不可信（单位错误、系统时钟错乱），整体降级到基线。 */
+        const val MAX_TRUSTED_CLOCK_OFFSET_MILLIS = 24 * 60 * 60 * 1_000L
         val CLIPBOARD_WRITE_RETRY_DELAYS_MILLIS = longArrayOf(1_000L, 5_000L, 15_000L, 30_000L)
         val RECONNECT_DELAYS_MILLIS = longArrayOf(
             5_000L,

@@ -116,4 +116,42 @@ class AutomaticSyncEventStoreTest {
             store.read(),
         )
     }
+
+    @Test
+    fun `被跳过内容的时间信息在重开后保留`() {
+        store.record(
+            AutomaticSyncEventKind.STALE_WRITE_SKIPPED,
+            contentType = ClipboardType.TEXT,
+            ageMillis = 81_000L,
+        )
+
+        assertEquals(
+            listOf(
+                AutomaticSyncEvent(
+                    timestampMillis = 1_700_000_000_000L,
+                    kind = AutomaticSyncEventKind.STALE_WRITE_SKIPPED,
+                    contentType = ClipboardType.TEXT,
+                    ageMillis = 81_000L,
+                ),
+            ),
+            AutomaticSyncEventStore(eventFile) { now }.read(),
+        )
+    }
+
+    @Test
+    fun `新增时间字段之前的四段记录仍可解析`() {
+        // 老版本写下的记录没有第 5 段，升级后不能丢。
+        eventFile.writeText("1700000000000|download_succeeded||Text")
+
+        assertEquals(
+            listOf(
+                AutomaticSyncEvent(
+                    timestampMillis = 1_700_000_000_000L,
+                    kind = AutomaticSyncEventKind.DOWNLOAD_SUCCEEDED,
+                    contentType = ClipboardType.TEXT,
+                ),
+            ),
+            store.read(),
+        )
+    }
 }

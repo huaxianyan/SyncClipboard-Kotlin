@@ -77,24 +77,31 @@ class ClipboardTransferService(private val context: Context) {
 
     fun getRemoteClipboard(): ClipboardPayload = client().getClipboard()
 
-    fun downloadAutomatically(
-        previousHash: String?,
-        settings: AdvancedSyncSettings,
-        onText: (text: String, sourceHash: String) -> Unit,
-    ): String? = applyRemoteAutomatically(client().getClipboard(), previousHash, settings, onText)
+    /** 远端内容的服务器生成时间；服务器不提供时为 null，调用方据此保持原有行为。 */
+    fun getRemoteContentTimestamp(payload: ClipboardPayload): Long? =
+        runCatching { client().getRemoteContentTimestamp(payload) }.getOrNull()
 
+    /** 服务器时钟相对本机时钟的偏移；无法获取时为 null。 */
+    fun getServerTimeOffsetMillis(): Long? = runCatching {
+        val serverNow = client().getServerTimeMillis() ?: return@runCatching null
+        serverNow - System.currentTimeMillis()
+    }.getOrNull()
+
+    /**
+     * 把远端内容落到本机。调用方负责先排除「本机已经有了、不必再处理」的情况
+     * （见 `SystemBridgeService.remoteContentAlreadyPresent`）——那个判断依赖本机剪贴板
+     * 登记值还是上次同步点，语义不同，由调用方按路径决定，不在这里混为一谈。
+     */
     fun applyRemoteAutomatically(
         payload: ClipboardPayload,
-        previousHash: String?,
         settings: AdvancedSyncSettings,
         onText: (text: String, sourceHash: String) -> Unit,
     ): String? {
         val sourceHash = remoteHash(payload)
-        if (sourceHash.equals(previousHash, ignoreCase = true)) return null
 
         return when (payload.type) {
             ClipboardType.TEXT -> if (settings.downloadText) {
-                applyRemoteTextIfChanged(payload, previousHash, onText)
+                applyRemoteText(payload, onText)
             } else {
                 null
             }
@@ -113,13 +120,11 @@ class ClipboardTransferService(private val context: Context) {
         }
     }
 
-    fun applyRemoteTextIfChanged(
+    fun applyRemoteText(
         payload: ClipboardPayload,
-        previousHash: String?,
         onText: (text: String, sourceHash: String) -> Unit,
     ): String? {
         val sourceHash = remoteHash(payload)
-        if (sourceHash.equals(previousHash, ignoreCase = true)) return null
         if (payload.type != ClipboardType.TEXT) return sourceHash
 
         applyDownloadedPayload(client(), payload) { text -> onText(text, sourceHash) }

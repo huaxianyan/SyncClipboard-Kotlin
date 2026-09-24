@@ -21,6 +21,17 @@ class PayloadFactoryTest {
     }
 
     @Test
+    fun `text hash matches the hash used by uploads`() {
+        // 本机剪贴板内容用 textHash 登记，再与远端 payload 的 hash 比对；
+        // 两边算法必须完全同源，否则这份登记值永远比不中。
+        assertEquals(
+            PayloadFactory.text("  abc  ").payload.hash,
+            PayloadFactory.textHash("abc"),
+        )
+        assertEquals(PayloadFactory.textHash("abc"), PayloadFactory.textHash("  abc\n"))
+    }
+
+    @Test
     fun `long text is transferred through a data file`() {
         val text = "x".repeat(PayloadFactory.TEXT_FILE_THRESHOLD + 1)
         val upload = PayloadFactory.text(text)

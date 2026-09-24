@@ -15,7 +15,12 @@ internal enum class AutomaticSyncEventKind(val storageCode: String) {
     UPLOAD_SUCCEEDED("upload_succeeded"),
     UPLOAD_FAILED("upload_failed"),
     DOWNLOAD_SUCCEEDED("download_succeeded"),
-    DOWNLOAD_FAILED("download_failed");
+    DOWNLOAD_FAILED("download_failed"),
+    BASELINE_ESTABLISHED("baseline_established"),
+    STALE_WRITE_SKIPPED("stale_write_skipped"),
+
+    /** 远端内容推来了，但本机剪贴板里已经是它，因此没有重复写入。 */
+    REMOTE_DEDUPED("remote_deduped");
 
     companion object {
         fun fromStorageCode(value: String): AutomaticSyncEventKind? =
@@ -28,6 +33,8 @@ internal data class AutomaticSyncEvent(
     val kind: AutomaticSyncEventKind,
     val failure: SyncFailureKind? = null,
     val contentType: ClipboardType? = null,
+    /** 被跳过的内容比恢复时刻旧了多少毫秒；仅 [AutomaticSyncEventKind.STALE_WRITE_SKIPPED] 会带。 */
+    val ageMillis: Long? = null,
 )
 
 internal class AutomaticSyncEventStore(
@@ -47,12 +54,13 @@ internal class AutomaticSyncEventStore(
         kind: AutomaticSyncEventKind,
         failure: SyncFailureKind? = null,
         contentType: ClipboardType? = null,
+        ageMillis: Long? = null,
     ) = withFileLock {
         val now = clock()
         val current = readUnlocked()
             .filter { it.timestampMillis >= now - RETENTION_MILLIS }
             .takeLast(MAX_EVENTS)
-        val event = AutomaticSyncEvent(now, kind, failure, contentType)
+        val event = AutomaticSyncEvent(now, kind, failure, contentType, ageMillis)
         if (kind !in REPEATABLE_KINDS && current.lastOrNull()?.sameStateAs(event) == true) {
             return@withFileLock
         }
@@ -118,11 +126,13 @@ internal class AutomaticSyncEventStore(
             event.kind.storageCode,
             event.failure?.storageCode().orEmpty(),
             event.contentType?.wireName.orEmpty(),
+            event.ageMillis?.toString().orEmpty(),
         ).joinToString("|")
 
         fun decode(line: String): AutomaticSyncEvent? {
             val fields = line.split('|')
-            if (fields.size != 4) return null
+            // 第 5 段「内容年龄」是后加的，旧记录只有 4 段，照旧解析。
+            if (fields.size < 4) return null
             return AutomaticSyncEvent(
                 timestampMillis = fields[0].toLongOrNull() ?: return null,
                 kind = AutomaticSyncEventKind.fromStorageCode(fields[1]) ?: return null,
@@ -130,6 +140,7 @@ internal class AutomaticSyncEventStore(
                 contentType = fields[3].takeIf(String::isNotEmpty)?.let { value ->
                     ClipboardType.entries.firstOrNull { it.wireName == value }
                 },
+                ageMillis = fields.getOrNull(4)?.toLongOrNull(),
             )
         }
 
