@@ -22,9 +22,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
@@ -297,11 +295,10 @@ private fun SyncClipboardApp(
             )
         },
         bottomBar = {
-            AnimatedVisibility(
-                visible = !showingSecondaryPage,
-                enter = fadeIn() + slideInVertically { height -> height / 2 } + expandVertically(),
-                exit = fadeOut() + slideOutVertically { height -> height / 2 } + shrinkVertically(),
-            ) {
+            // 底栏不做进出动画：fade 期间导航栏是半透明的，而页面容器铺满整个 Scaffold，
+            // 会看到内容从底下透出来；高度动画还会让内容区反复重排，动画收尾时跳一下。
+            // 二级页面本身有返回按钮，底栏直接出现或消失即可。
+            if (!showingSecondaryPage) {
                 NavigationBar {
                     NavigationBarItem(
                         selected = currentPage == AppPage.HOME,
@@ -820,7 +817,21 @@ private fun automaticSyncEventLabel(event: AutomaticSyncEvent): String {
         AutomaticSyncEventKind.UPLOAD_FAILED -> "$content 自动上传失败 · $failure"
         AutomaticSyncEventKind.DOWNLOAD_SUCCEEDED -> "$content 自动接收成功"
         AutomaticSyncEventKind.DOWNLOAD_FAILED -> "$content 自动接收失败 · $failure"
+        AutomaticSyncEventKind.BASELINE_ESTABLISHED -> "已重建远端基线，暂停期间的内容不会写入"
+        AutomaticSyncEventKind.STALE_WRITE_SKIPPED -> {
+            val age = event.ageMillis?.let { "${formatStaleAge(it)}前" } ?: "暂停期间"
+            "${age}的${content}未写入剪贴板，已存入历史"
+        }
+
+        AutomaticSyncEventKind.REMOTE_DEDUPED -> "本机剪贴板已是这份${content}，未重复写入"
     }
+}
+
+private fun formatStaleAge(ageMillis: Long): String = when {
+    ageMillis < 60_000L -> "不到 1 分钟"
+    ageMillis < 60 * 60_000L -> "${ageMillis / 60_000L} 分钟"
+    ageMillis < 24 * 60 * 60_000L -> "${ageMillis / (60 * 60_000L)} 小时"
+    else -> "${ageMillis / (24 * 60 * 60_000L)} 天"
 }
 
 private fun syncFailureTitle(failure: SyncFailureKind?, fallbackTitle: String): String = when (failure) {
