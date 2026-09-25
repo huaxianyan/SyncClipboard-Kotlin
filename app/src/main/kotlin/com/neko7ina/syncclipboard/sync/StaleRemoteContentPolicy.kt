@@ -12,7 +12,7 @@ package com.neko7ina.syncclipboard.sync
  * 「重新复制一条以前复制过的内容」误判成积压（它的 `createTime` 同样很老）。
  *
  * 刻意做成纯函数：输入全部由调用方解析好，两端时钟、宽限、恰好相等的边界都能在
- * 单元测试里覆盖，不必依赖真机复现——这一点正是这个功能过去反复出问题的原因。
+ * 单元测试里覆盖，不必依赖真机复现。这一点正是这个功能过去反复出问题的原因。
  */
 internal object StaleRemoteContentPolicy {
 

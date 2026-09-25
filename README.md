@@ -2,7 +2,7 @@
 
 SyncClipboard Kotlin 是面向 Android 的原生 SyncClipboard 客户端，用于在手机与 SyncClipboard Server 之间同步文本、图片和文件。
 
-项目使用 Kotlin 与 Jetpack Compose Material 3 构建主体界面，支持 Material You 动态配色，并保留轻量原生快速路径。主体应用可以独立完成手动同步；需要后台自动同步时，可按需安装无界面的 LSPosed 系统扩展。
+项目使用 Kotlin 与 Jetpack Compose Material 3 构建主体界面，支持 Material You 动态配色，并保留轻量原生快速路径。主体应用可以独立完成手动同步。需要后台自动同步时，可按需安装无界面的 LSPosed 系统扩展。
 
 ## 下载
 
@@ -47,7 +47,7 @@ SyncClipboard Kotlin 是面向 Android 的原生 SyncClipboard 客户端，用�
 - Android 12 及以上版本使用系统 Material You 动态配色，旧版本使用内置浅色／深色主题
 - 首页、历史、设置和次级页面提供与导航层级一致的过渡动画
 
-自动同步诊断记录用于判断连接和恢复状态；文本同步历史属于用户主动开启的内容记录，两者相互独立。
+自动同步诊断记录用于判断连接和恢复状态。文本同步历史属于用户主动开启的内容记录，两者相互独立。
 
 ### 服务器与协议
 
@@ -81,7 +81,7 @@ SyncClipboard Kotlin 是面向 Android 的原生 SyncClipboard 客户端，用�
 
 ## 技术文档
 
-- [架构说明](docs/architecture.md)：模块职责、同步链路、网络生命周期和安全边界
+- [架构说明](docs/architecture.md)：模块职责、同步流程、网络生命周期和安全边界
 - [构建与发布](docs/build.md)：开发环境、构建命令、签名配置和 GitHub Actions
 
 ## 参考项目

@@ -71,7 +71,7 @@ object PayloadFactory {
     /**
      * 文本内容的哈希，与 [text] 使用完全相同的归一化方式（trim 后按 UTF-8 取 SHA-256）。
      *
-     * 本机剪贴板的内容也用它登记，才能和远端 payload 的哈希直接比对——两边算法必须同源，
+     * 本机剪贴板的内容也用它登记，才能和远端 payload 的哈希直接比对。两边算法必须同源，
      * 否则比对永远不成立。
      */
     fun textHash(text: String): String =

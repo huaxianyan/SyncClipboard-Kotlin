@@ -90,7 +90,7 @@ class StaleRemoteContentPolicyTest {
      * 服务端只在记录首次创建时写 `createTime`：`AddProfile` 命中已有 hash 时只刷
      * `LastAccessed`/`LastModified`/`Version`，`Update`（PATCH）与 `UpdateEntityFields`
      * 也都不碰它。所以「重新复制一条以前复制过的内容」在时间上看起来和一条积压内容
-     * 完全一样——判据本身区分不了，只能靠调用时机区分（推送 = 刚刚，补查 = 可能有积压）。
+     * 完全一样，判据本身区分不了，只能靠调用时机区分（推送 = 刚刚，补查 = 可能有积压）。
      */
     @Test
     fun `重新复制一条旧内容在时间上与积压内容无法区分`() {

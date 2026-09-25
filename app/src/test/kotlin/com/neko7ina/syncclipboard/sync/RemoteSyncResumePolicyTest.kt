@@ -76,7 +76,7 @@ class RemoteSyncResumePolicyTest {
         assertFalse(policy.markBaselineEstablished(generation))
         assertTrue(policy.shouldEstablishBaseline(false, "hash-after", canJudgeByContentTime = false))
 
-        // 重新对齐之后标志才会被清掉。
+        // 重新记录同步点之后标志才会被清掉。
         assertTrue(policy.markBaselineEstablished(policy.baselineGeneration()))
         assertFalse(policy.shouldEstablishBaseline(false, "hash-after", canJudgeByContentTime = false))
     }
@@ -103,7 +103,7 @@ class RemoteSyncResumePolicyTest {
         )
         assertTrue(policy.markBaselineEstablished(policy.baselineGeneration()))
 
-        // 哈希丢失（例如服务器方案变更重置）时必须重新对齐。
+        // 哈希丢失（例如服务器方案变更重置）时必须重新记录同步点。
         assertTrue(policy.shouldEstablishBaseline(false, null, canJudgeByContentTime = false))
     }
 
@@ -115,7 +115,7 @@ class RemoteSyncResumePolicyTest {
             remoteSyncEnabled = true,
         )
 
-        // 条件丢失已经把标志置上，但只要内容时间可用就不再走基线——
+        // 条件丢失已经把标志置上，但只要内容时间可用就不再走基线：
         // 这条路径不再依赖存活条件是否被完整上报。
         policy.onAutomaticConditionLost(receivePausedRemoteChanges = false)
         assertFalse(policy.shouldEstablishBaseline(false, "hash", canJudgeByContentTime = true))

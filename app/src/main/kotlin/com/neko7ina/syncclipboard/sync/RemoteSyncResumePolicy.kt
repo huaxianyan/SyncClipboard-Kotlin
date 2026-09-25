@@ -9,8 +9,8 @@ package com.neko7ina.syncclipboard.sync
  *
  * 这只是**降级路径**：只要服务端能提供内容的 `createTime`（见
  * [StaleRemoteContentPolicy]），就改由内容时间去判定，不再依赖这里的标志，
- * 也就不再依赖 [onAutomaticConditionLost] 是否覆盖了循环存活条件的**全部**来源
- * ——那正是这条路径历史上反复漏判的根因。只有拿不到内容时间时才回落到基线。
+ * 也就不再依赖 [onAutomaticConditionLost] 是否覆盖了循环存活条件的**全部**来源。
+ * 漏报来源正是这条路径历史上反复漏判的根因。只有拿不到内容时间时才回落到基线。
  */
 internal class RemoteSyncResumePolicy {
     private var receivePausedRemoteChanges = true
@@ -60,7 +60,7 @@ internal class RemoteSyncResumePolicy {
     /**
      * 是否必须先重建基线。
      *
-     * [canJudgeByContentTime] 为 true 时一律返回 false：内容时间比「对齐哈希」更准，
+     * [canJudgeByContentTime] 为 true 时一律返回 false：内容时间比基线哈希更准，
      * 而且不必知道循环是为什么停摆的。基线仅在服务端不提供内容时间（老版本、
      * 纯 WebDAV 部署、时钟不可信）时启用。
      */
