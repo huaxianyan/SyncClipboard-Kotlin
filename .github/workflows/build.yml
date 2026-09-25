@@ -108,6 +108,6 @@ jobs:
               system-extension/build/outputs/apk/release/system-extension-release.apk \
               build/release/SHA256SUMS \
               --verify-tag \
-              --title "SyncClipboard Kotlin $GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME" \
               --notes-file "$notes_out"
           fi

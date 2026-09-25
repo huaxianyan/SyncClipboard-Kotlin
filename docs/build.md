@@ -133,3 +133,5 @@ python3 scripts/verify_release_notes.py --tag vX.Y.Z
 ```
 
 发布工作流还会在正文末尾追加 `## 构建信息`，列出标签与两个 APK 的 SHA-256。发布说明本身不要再写这一节。
+
+Release 的标题就是标签本身，例如 `v0.2.0`，不添加产品名前缀。这样左侧的 Release 列表会直接显示版本号，而不是一列相同的产品名。
