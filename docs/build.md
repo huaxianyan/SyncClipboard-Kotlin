@@ -59,7 +59,7 @@ SYNC_CLIPBOARD_KEY_ALIAS
 SYNC_CLIPBOARD_KEY_PASSWORD
 ```
 
-缺少签名配置时仍可执行 Debug 构建；Release 构建会直接失败，避免生成来源不明确的发布包。
+缺少签名配置时仍可执行 Debug 构建。Release 构建会直接失败，避免生成来源不明确的发布包。
 
 ## Release 构建
 
@@ -106,7 +106,7 @@ RELEASE_TAG=vX.Y.Z ./scripts/verify-release.sh
 
 Windows 请使用 Git Bash，确保 `awk`、`grep`、`jar`、`java` 和 `sha256sum` 可用。校验工具缺失时脚本会停止，不会生成无效的 `SHA256SUMS`。
 
-手动运行工作流会上传签名 APK 和 `SHA256SUMS` Artifact；推送 `v*` 标签还会创建对应的 GitHub Release。
+手动运行工作流会上传签名 APK 和 `SHA256SUMS` Artifact。推送 `v*` 标签还会创建对应的 GitHub Release。
 
 ## 模块版本
 
@@ -117,4 +117,19 @@ syncClipboard.versionCode=<递增整数>
 syncClipboard.versionName=<版本号>
 ```
 
-发布时只更新这一处，两个模块会生成相同版本的配套 APK。推送 `v*` 标签前，还应创建与标签同名的 `docs/release-notes/<tag>.md`；发布工作流会将该文件作为 GitHub Release 正文，缺失时停止发布。
+发布时只更新这一处，两个模块会生成相同版本的配套 APK。推送 `v*` 标签前，还应创建与标签同名的 `docs/release-notes/<tag>.md`。发布工作流会将该文件作为 GitHub Release 正文，缺失时停止发布。
+
+发布说明要短，由 `scripts/verify_release_notes.py` 校验，工作流在发布前会跑一次：
+
+- 正文不超过 40 行，首行不能是一级标题
+- 必须包含 `## 主要更新`
+- 必须链接到详细记录，链接指向 `blob/v<版本>/` 下的文档
+- 不写 `## 使用说明`、`## 真机验收`、`## 构建与兼容范围` 和 `## 兼容边界`，这些内容属于 `docs/architecture.md`
+
+本地可以先跑一次：
+
+```bash
+python3 scripts/verify_release_notes.py --tag vX.Y.Z
+```
+
+发布工作流还会在正文末尾追加 `## 构建信息`，列出标签与两个 APK 的 SHA-256。发布说明本身不要再写这一节。

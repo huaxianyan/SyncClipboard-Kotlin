@@ -66,6 +66,10 @@ jobs:
             app/build/outputs/apk/release/app-release.apk
             system-extension/build/outputs/apk/release/system-extension-release.apk
             build/release/SHA256SUMS
+      - name: Verify release notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: python3 scripts/verify_release_notes.py --tag "$GITHUB_REF_NAME"
+
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
@@ -76,8 +80,23 @@ jobs:
             echo "Missing release notes: $notes_file" >&2
             exit 1
           fi
+          # 正文 = 版本化的发布说明 + 追加的构建信息（版本与两个 APK 的 SHA-256）
+          notes_out="build/release/release-notes.md"
+          mkdir -p "$(dirname "$notes_out")"
+          {
+            cat "$notes_file"
+            printf '\n## 构建信息\n\n'
+            printf '| 项目 | 值 |\n'
+            printf '| --- | --- |\n'
+            printf '| 版本 | `%s` |\n' "$GITHUB_REF_NAME"
+            for apk in \
+              app/build/outputs/apk/release/app-release.apk \
+              system-extension/build/outputs/apk/release/system-extension-release.apk; do
+              printf '| %s SHA-256 | `%s` |\n' "${apk##*/}" "$(sha256sum "$apk" | cut -d' ' -f1)"
+            done
+          } > "$notes_out"
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release edit "$GITHUB_REF_NAME" --notes-file "$notes_file"
+            gh release edit "$GITHUB_REF_NAME" --notes-file "$notes_out"
             gh release upload "$GITHUB_REF_NAME" \
               app/build/outputs/apk/release/app-release.apk \
               system-extension/build/outputs/apk/release/system-extension-release.apk \
@@ -90,5 +109,5 @@ jobs:
               build/release/SHA256SUMS \
               --verify-tag \
               --title "SyncClipboard Kotlin $GITHUB_REF_NAME" \
-              --notes-file "$notes_file"
+              --notes-file "$notes_out"
           fi
