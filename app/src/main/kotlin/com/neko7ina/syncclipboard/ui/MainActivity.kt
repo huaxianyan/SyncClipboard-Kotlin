@@ -18,11 +18,18 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
@@ -35,9 +42,13 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -269,11 +280,11 @@ private fun SyncClipboardApp(
                         targetState = currentPage,
                         transitionSpec = {
                             if (targetState.isForwardFrom(initialState)) {
-                                (fadeIn() + slideInHorizontally { width -> width / 4 }) togetherWith
-                                    (fadeOut() + slideOutHorizontally { width -> -width / 4 })
+                                (fadeIn(pageTransition()) + slideInHorizontally(pageTransition()) { width -> width / 4 }) togetherWith
+                                    (fadeOut(pageTransition()) + slideOutHorizontally(pageTransition()) { width -> -width / 4 })
                             } else {
-                                (fadeIn() + slideInHorizontally { width -> -width / 4 }) togetherWith
-                                    (fadeOut() + slideOutHorizontally { width -> width / 4 })
+                                (fadeIn(pageTransition()) + slideInHorizontally(pageTransition()) { width -> -width / 4 }) togetherWith
+                                    (fadeOut(pageTransition()) + slideOutHorizontally(pageTransition()) { width -> width / 4 })
                             }
                         },
                         label = "top bar title",
@@ -295,10 +306,16 @@ private fun SyncClipboardApp(
             )
         },
         bottomBar = {
-            // 底栏不做进出动画：fade 期间导航栏是半透明的，而页面容器铺满整个 Scaffold，
-            // 会看到内容从底下透出来；高度动画还会让内容区反复重排，动画收尾时跳一下。
-            // 二级页面本身有返回按钮，底栏直接出现或消失即可。
-            if (!showingSecondaryPage) {
+            // 只做位移与高度，不做淡入淡出：fade 期间底栏是半透明的，而页面容器铺满整个
+            // Scaffold，会看到内容从底下透出来。位移与高度共用一条曲线，底栏滑出的同时内容区
+            // 的底部内边距一起收窄，内容延伸到底是连贯的，不会先空出一块再突然填上。
+            AnimatedVisibility(
+                visible = !showingSecondaryPage,
+                enter = slideInVertically(bottomBarEnter()) { height -> height } +
+                    expandVertically(bottomBarEnter()),
+                exit = slideOutVertically(bottomBarExit()) { height -> height } +
+                    shrinkVertically(bottomBarExit()),
+            ) {
                 NavigationBar {
                     NavigationBarItem(
                         selected = currentPage == AppPage.HOME,
@@ -323,50 +340,66 @@ private fun SyncClipboardApp(
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { contentPadding ->
-        AnimatedContent(
-            targetState = currentPage,
-            transitionSpec = {
-                if (targetState.isForwardFrom(initialState)) {
-                    (fadeIn() + slideInHorizontally { width -> width / 3 }) togetherWith
-                        (fadeOut() + slideOutHorizontally { width -> -width / 3 })
-                } else {
-                    (fadeIn() + slideInHorizontally { width -> -width / 3 }) togetherWith
-                        (fadeOut() + slideOutHorizontally { width -> width / 3 })
+        Box(modifier = Modifier.fillMaxSize()) {
+            AnimatedContent(
+                targetState = currentPage,
+                transitionSpec = {
+                    if (targetState.isForwardFrom(initialState)) {
+                        (fadeIn(pageTransition()) + slideInHorizontally(pageTransition()) { width -> width / 3 }) togetherWith
+                            (fadeOut(pageTransition()) + slideOutHorizontally(pageTransition()) { width -> -width / 3 })
+                    } else {
+                        (fadeIn(pageTransition()) + slideInHorizontally(pageTransition()) { width -> -width / 3 }) togetherWith
+                            (fadeOut(pageTransition()) + slideOutHorizontally(pageTransition()) { width -> width / 3 })
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+                label = "page transition",
+            ) { targetPage ->
+                when (targetPage) {
+                    AppPage.HOME -> DashboardPage(
+                        contentPadding = contentPadding,
+                        extensionState = extensionState,
+                        server = server,
+                        connectionStatus = connectionStatus,
+                        connectionFailure = connectionFailure,
+                        onRetryConnection = { checkRequest++ },
+                        onOpenAutomaticSyncEvents = {
+                            currentPage = AppPage.AUTOMATIC_SYNC_EVENTS
+                        },
+                    )
+                    AppPage.SETTINGS -> SettingsPage(
+                        contentPadding = contentPadding,
+                        requestTile = requestTile,
+                        extensionState = extensionState,
+                        extensionController = extensionController,
+                        showMessage = ::showMessage,
+                        onServerChanged = ::updateServer,
+                        onOpenTextSyncHistory = { currentPage = AppPage.TEXT_SYNC_HISTORY },
+                    )
+                    AppPage.AUTOMATIC_SYNC_EVENTS -> AutomaticSyncEventsPage(
+                        contentPadding = contentPadding,
+                        showMessage = ::showMessage,
+                    )
+                    AppPage.TEXT_SYNC_HISTORY -> TextSyncHistoryPage(
+                        contentPadding = contentPadding,
+                        showMessage = ::showMessage,
+                    )
                 }
-            },
-            modifier = Modifier.fillMaxSize(),
-            label = "page transition",
-        ) { targetPage ->
-            when (targetPage) {
-                AppPage.HOME -> DashboardPage(
-                    contentPadding = contentPadding,
-                    extensionState = extensionState,
-                    server = server,
-                    connectionStatus = connectionStatus,
-                    connectionFailure = connectionFailure,
-                    onRetryConnection = { checkRequest++ },
-                    onOpenAutomaticSyncEvents = {
-                        currentPage = AppPage.AUTOMATIC_SYNC_EVENTS
-                    },
-                )
-                AppPage.SETTINGS -> SettingsPage(
-                    contentPadding = contentPadding,
-                    requestTile = requestTile,
-                    extensionState = extensionState,
-                    extensionController = extensionController,
-                    showMessage = ::showMessage,
-                    onServerChanged = ::updateServer,
-                    onOpenTextSyncHistory = { currentPage = AppPage.TEXT_SYNC_HISTORY },
-                )
-                AppPage.AUTOMATIC_SYNC_EVENTS -> AutomaticSyncEventsPage(
-                    contentPadding = contentPadding,
-                    showMessage = ::showMessage,
-                )
-                AppPage.TEXT_SYNC_HISTORY -> TextSyncHistoryPage(
-                    contentPadding = contentPadding,
-                    showMessage = ::showMessage,
-                )
             }
+
+            // 系统导航栏（虚拟键）那一条永远只由背景色占据。底栏收放或者页面转场时，任何一帧
+            // 页面内容都不该露进这块区域。露一下再被推回去，看起来就是「虚拟键后面闪出内容、
+            // 然后背景突然变纯黑」。这一层盖在页面之上、底栏之下，底栏在场时由底栏自己覆盖它，
+            // 所以它只在底栏不在场的时段起作用。
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(
+                        WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+                    )
+                    .background(MaterialTheme.colorScheme.background),
+            )
         }
     }
 }
@@ -795,6 +828,35 @@ private fun TextSyncHistoryRow(
         }
     }
 }
+
+/** 页面转场时长。底栏退出比它略长，让底栏多留一会儿再走。 */
+private const val PAGE_TRANSITION_MILLIS = 300
+
+/** 底栏入场时长。 */
+private const val BOTTOM_BAR_ENTER_MILLIS = 300
+
+/** 底栏退场时长。比入场长，这是刻意让整段滑出都看得见。 */
+private const val BOTTOM_BAR_EXIT_MILLIS = 420
+
+private fun <T> pageTransition(): FiniteAnimationSpec<T> =
+    tween(PAGE_TRANSITION_MILLIS, easing = FastOutSlowInEasing)
+
+/**
+ * 底栏入场：减速就位（前段快、末段稳住），和页面转场同节奏。
+ */
+private fun <T> bottomBarEnter(): FiniteAnimationSpec<T> =
+    tween(BOTTOM_BAR_ENTER_MILLIS, easing = LinearOutSlowInEasing)
+
+/**
+ * 底栏退场：加速离场（慢起、末段加速走掉）。
+ *
+ * 这里**不能用 `LinearOutSlowInEasing`**：它是「前段冲刺 + 末段刹车」，会把约 60% 的位移
+ * 压在开头 20% 的时间里。底栏能看见的部分只有「顶边扫过图标」那一段，占全程约 38%，
+ * 在减速曲线下折算下来只有 300 ms × 10% ≈ 30 ms，真机上和瞬移没有区别（实测 1× 下
+ * 顶边走完 195 px 只用了 42 ms）。换成加速曲线并把时长拉长后，同样的位移摊到约 200 ms。
+ */
+private fun <T> bottomBarExit(): FiniteAnimationSpec<T> =
+    tween(BOTTOM_BAR_EXIT_MILLIS, easing = FastOutLinearInEasing)
 
 private const val HISTORY_PREVIEW_LENGTH = 300
 
@@ -1286,10 +1348,20 @@ private fun PageColumn(
     contentPadding: PaddingValues,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    // 底栏回收时 Scaffold 给的底部内边距会从底栏高度一路收到 0，页面内容就会伸进系统导航栏
+    // （虚拟键）那一条里：回收过程中在虚拟键后面闪出内容，回收完又缩回去。底部永远至少留出
+    // 导航栏的高度，内容就进不到那一条里，整个过程底色保持一致。
+    val navigationBarInset = WindowInsets.navigationBars
+        .asPaddingValues()
+        .calculateBottomPadding()
+    val bottomShortfall = (navigationBarInset - contentPadding.calculateBottomPadding())
+        .coerceAtLeast(0.dp)
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(contentPadding),
+            .padding(contentPadding)
+            .padding(bottom = bottomShortfall),
         contentAlignment = Alignment.TopCenter,
     ) {
         Column(

@@ -19,9 +19,11 @@ import java.util.Date
 import java.util.Locale
 import java.util.zip.ZipInputStream
 
-class ClipboardTransferService(private val context: Context) {
+class ClipboardTransferService(
+    private val context: Context,
+    private val repository: SettingsRepository = SettingsRepository(context),
+) {
     private val resolver = context.contentResolver
-    private val repository = SettingsRepository(context)
 
     fun uploadClipboard(): String {
         val clipboard = context.getSystemService(ClipboardManager::class.java)
@@ -89,7 +91,7 @@ class ClipboardTransferService(private val context: Context) {
 
     /**
      * 把远端内容落到本机。调用方负责先排除「本机已经有了、不必再处理」的情况
-     * （见 `SystemBridgeService.remoteContentAlreadyPresent`）——那个判断依赖本机剪贴板
+     * （见 `SystemBridgeService.remoteContentAlreadyPresent`）：那个判断依赖本机剪贴板
      * 登记值还是上次同步点，语义不同，由调用方按路径决定，不在这里混为一谈。
      */
     fun applyRemoteAutomatically(

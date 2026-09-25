@@ -19,18 +19,38 @@ data class LastSync(
 )
 
 class SettingsRepository(
-    context: Context,
-    reloadForAnotherProcess: Boolean = false,
+    private val context: Context,
+    private val syncProcess: Boolean = false,
 ) {
+    /**
+     * 设置与服务器配置。**只由主进程写入**，`:sync` 进程只读，读时启用跨进程重新加载。
+     *
+     * SharedPreferences 提交时会把内存里的整张表写回文件，两个进程各写一次就必然互相覆盖
+     * （`MODE_PRIVATE` 不跨进程同步，后写者的陈旧内存快照会抹掉对方刚写的键）。因此每个偏好
+     * 文件只能有一个写入者：这个文件归主进程，运行时状态归 [runtimePreferences]。
+     */
     @Suppress("DEPRECATION")
     private val preferences = context.getSharedPreferences(
         PREFERENCES_NAME,
-        if (reloadForAnotherProcess) Context.MODE_MULTI_PROCESS else Context.MODE_PRIVATE,
+        if (syncProcess) Context.MODE_MULTI_PROCESS else Context.MODE_PRIVATE,
     )
+
+    /** 运行时状态。**只由 `:sync` 进程写入**，主进程只读（读自动同步时间用于展示）。 */
+    @Suppress("DEPRECATION")
+    private val runtimePreferences = context.getSharedPreferences(
+        RUNTIME_PREFERENCES_NAME,
+        if (syncProcess) Context.MODE_PRIVATE else Context.MODE_MULTI_PROCESS,
+    )
+
     private val profilesCryptor = ServerProfilesCryptor(AndroidServerProfilesKey::getOrCreate)
 
     @Volatile
     private var cachedServerProfiles: ServerProfilesLoadResult? = null
+
+    init {
+        // 一次性清理：下面这几个键已经搬到运行时文件，留在设置文件里的旧副本会被误读。
+        if (canPersistSettings) dropMigratedRuntimeKeys()
+    }
 
     @Synchronized
     fun loadServerProfilesResult(): ServerProfilesLoadResult {
@@ -76,19 +96,68 @@ class SettingsRepository(
         .withoutServer(serverId)
         .also(::persistProfiles)
 
+    /**
+     * 最近一次同步。手动同步由主进程记在主文件，自动同步由 `:sync` 进程记在运行时文件，
+     * 两边都不写对方的文件，取值时合并，取更晚的那次。
+     */
     fun loadLastSync(): LastSync? {
-        val timestamp = preferences.getLong(KEY_LAST_SYNC_TIME, 0L)
+        val manual = readLastSync(preferences, KEY_LAST_SYNC_TIME, KEY_LAST_SYNC_DIRECTION)
+        val automatic = readLastSync(runtimeSnapshot(), KEY_AUTOMATIC_SYNC_TIME, KEY_AUTOMATIC_SYNC_DIRECTION)
+        return listOfNotNull(manual, automatic).maxByOrNull { it.timestampMillis }
+    }
+
+    /**
+     * 运行时状态由 `:sync` 进程写入，本进程的内存快照不会自动更新。主进程读取前重新取一次实例，
+     * 让 SharedPreferences 按文件时间戳重新加载；`:sync` 进程自己就是写入者，直接用现成实例。
+     */
+    @Suppress("DEPRECATION")
+    private fun runtimeSnapshot(): SharedPreferences = if (syncProcess) {
+        runtimePreferences
+    } else {
+        context.getSharedPreferences(RUNTIME_PREFERENCES_NAME, Context.MODE_MULTI_PROCESS)
+    }
+
+    /**
+     * 是否允许写主文件。只有主进程能写：`:sync` 进程对主文件只读，否则它会用自己陈旧的内存
+     * 快照整表覆盖，把主进程刚保存的设置或服务器配置抹掉。
+     */
+    private val canPersistSettings: Boolean get() = !syncProcess
+
+    /** 一次性清理：这几个键已经搬到运行时文件，留在设置文件里的旧副本不该再被读到。 */
+    private fun dropMigratedRuntimeKeys() {
+        val staleKeys = listOf(
+            KEY_LAST_AUTOMATIC_REMOTE_HASH,
+            KEY_LOCAL_CLIPBOARD_HASH,
+            KEY_LOCAL_CLIPBOARD_HASH_ELAPSED,
+            KEY_PENDING_AUTOMATIC_TEXT,
+        ).filter(preferences::contains)
+        if (staleKeys.isEmpty()) return
+        val editor = preferences.edit()
+        staleKeys.forEach(editor::remove)
+        editor.apply()
+    }
+
+    private fun readLastSync(
+        source: SharedPreferences,
+        timeKey: String,
+        directionKey: String,
+    ): LastSync? {
+        val timestamp = source.getLong(timeKey, 0L)
         if (timestamp <= 0L) return null
-        val direction = preferences.getString(KEY_LAST_SYNC_DIRECTION, null)
+        val direction = source.getString(directionKey, null)
             ?.let { runCatching { SyncDirection.valueOf(it) }.getOrNull() }
             ?: return null
         return LastSync(timestamp, direction)
     }
 
+    /** 记录一次同步完成。两个进程各写自己的文件：主进程记手动同步，`:sync` 进程记自动同步。 */
     fun recordSuccessfulSync(direction: SyncDirection) {
-        preferences.edit()
-            .putLong(KEY_LAST_SYNC_TIME, System.currentTimeMillis())
-            .putString(KEY_LAST_SYNC_DIRECTION, direction.name)
+        val target = if (syncProcess) runtimePreferences else preferences
+        val timeKey = if (syncProcess) KEY_AUTOMATIC_SYNC_TIME else KEY_LAST_SYNC_TIME
+        val directionKey = if (syncProcess) KEY_AUTOMATIC_SYNC_DIRECTION else KEY_LAST_SYNC_DIRECTION
+        target.edit()
+            .putLong(timeKey, System.currentTimeMillis())
+            .putString(directionKey, direction.name)
             .apply()
     }
 
@@ -106,12 +175,24 @@ class SettingsRepository(
         fileSaveTreeUri = preferences.getString(KEY_FILE_SAVE_TREE_URI, null),
     )
 
-    fun loadLastAutomaticRemoteHash(): String? =
-        preferences.getString(KEY_LAST_AUTOMATIC_REMOTE_HASH, null)
+    /**
+     * 「上次同步点」。换过服务器配置后作废：主进程换配置时会更新服务器标记，而它写不到运行时
+     * 文件里，所以改由本方法比对标记来判断，不依赖主进程跨文件清理。
+     */
+    fun loadLastAutomaticRemoteHash(): String? {
+        if (runtimePreferences.getString(KEY_RUNTIME_SERVER_TOKEN, null) != currentServerToken()) return null
+        return runtimePreferences.getString(KEY_LAST_AUTOMATIC_REMOTE_HASH, null)
+    }
 
     fun saveLastAutomaticRemoteHash(hash: String) {
-        preferences.edit().putString(KEY_LAST_AUTOMATIC_REMOTE_HASH, hash).apply()
+        runtimePreferences.edit()
+            .putString(KEY_LAST_AUTOMATIC_REMOTE_HASH, hash)
+            .putString(KEY_RUNTIME_SERVER_TOKEN, currentServerToken())
+            .apply()
     }
+
+    /** 服务器配置的当前标记。换方案或改配置后与运行时记录不一致，旧同步点随即作废。 */
+    private fun currentServerToken(): String? = preferences.getString(KEY_SERVER_CONFIG_TOKEN, null)
 
     /**
      * 本机剪贴板当前内容的哈希；不可信或从未登记时为 null。
@@ -121,33 +202,33 @@ class SettingsRepository(
      */
     fun loadLocalClipboardHash(): String? = LocalClipboardState.usableHash(
         nowElapsedRealtimeMillis = SystemClock.elapsedRealtime(),
-        recordedElapsedRealtimeMillis = preferences.getLong(KEY_LOCAL_CLIPBOARD_HASH_ELAPSED, 0L),
-        recordedHash = preferences.getString(KEY_LOCAL_CLIPBOARD_HASH, null),
+        recordedElapsedRealtimeMillis = runtimePreferences.getLong(KEY_LOCAL_CLIPBOARD_HASH_ELAPSED, 0L),
+        recordedHash = runtimePreferences.getString(KEY_LOCAL_CLIPBOARD_HASH, null),
     )
 
     /** 登记本机剪贴板内容。记录同时带上开机计时器，供重启后判失效。 */
     fun saveLocalClipboardHash(hash: String) {
-        preferences.edit()
+        runtimePreferences.edit()
             .putString(KEY_LOCAL_CLIPBOARD_HASH, hash)
             .putLong(KEY_LOCAL_CLIPBOARD_HASH_ELAPSED, SystemClock.elapsedRealtime())
             .apply()
     }
 
     fun loadPendingAutomaticText(): String? =
-        preferences.getString(KEY_PENDING_AUTOMATIC_TEXT, null)?.takeIf(String::isNotBlank)
+        runtimePreferences.getString(KEY_PENDING_AUTOMATIC_TEXT, null)?.takeIf(String::isNotBlank)
 
     fun savePendingAutomaticText(text: String) {
-        preferences.edit().putString(KEY_PENDING_AUTOMATIC_TEXT, text).apply()
+        runtimePreferences.edit().putString(KEY_PENDING_AUTOMATIC_TEXT, text).apply()
     }
 
     fun clearPendingAutomaticTextIfMatches(text: String) {
-        if (preferences.getString(KEY_PENDING_AUTOMATIC_TEXT, null) == text) {
-            preferences.edit().remove(KEY_PENDING_AUTOMATIC_TEXT).apply()
+        if (runtimePreferences.getString(KEY_PENDING_AUTOMATIC_TEXT, null) == text) {
+            runtimePreferences.edit().remove(KEY_PENDING_AUTOMATIC_TEXT).apply()
         }
     }
 
     fun clearPendingAutomaticText() {
-        preferences.edit().remove(KEY_PENDING_AUTOMATIC_TEXT).apply()
+        runtimePreferences.edit().remove(KEY_PENDING_AUTOMATIC_TEXT).apply()
     }
 
     fun saveAdvancedSyncSettings(settings: AdvancedSyncSettings) {
@@ -185,7 +266,8 @@ class SettingsRepository(
 
     private fun migratePlaintextProfiles(raw: String): ServerProfilesLoadResult = runCatching {
         val profiles = decodeProfiles(raw)
-        persistProfiles(profiles, resetRemoteHash = false)
+        // 迁移要落盘，落盘只归主进程：`:sync` 进程只把解析结果拿去用，不写文件。
+        if (canPersistSettings) persistProfiles(profiles, resetRemoteHash = false)
         ServerProfilesLoadResult(profiles)
     }.getOrElse {
         Log.e(TAG, "Unable to migrate server profiles", it)
@@ -205,7 +287,7 @@ class SettingsRepository(
                 trustInsecureCertificate = preferences.getBoolean(KEY_TRUST_INSECURE, false),
             )
             val profiles = ServerProfiles(listOf(migrated), migrated.id)
-            persistProfiles(profiles, resetRemoteHash = false)
+            if (canPersistSettings) persistProfiles(profiles, resetRemoteHash = false)
             ServerProfilesLoadResult(profiles)
         }.getOrElse {
             Log.e(TAG, "Unable to migrate legacy server profile", it)
@@ -237,7 +319,9 @@ class SettingsRepository(
             .remove(KEY_USERNAME)
             .remove(KEY_PASSWORD)
             .remove(KEY_TRUST_INSECURE)
-        if (resetRemoteHash) editor.remove(KEY_LAST_AUTOMATIC_REMOTE_HASH)
+        // 「上次同步点」已搬到运行时文件，主进程写不到，改为换一个服务器标记：`:sync` 进程读到时
+        // 发现标记对不上，就知道它属于别的服务器，自行作废。
+        if (resetRemoteHash) editor.putString(KEY_SERVER_CONFIG_TOKEN, UUID.randomUUID().toString())
         check(editor.commit()) { "保存服务器配置失败，请检查设备存储空间后重试" }
         cachedServerProfiles = ServerProfilesLoadResult(profiles)
     }
@@ -285,6 +369,7 @@ class SettingsRepository(
     private companion object {
         const val TAG = "ServerProfilesStorage"
         const val PREFERENCES_NAME = "sync_clipboard_settings"
+        const val RUNTIME_PREFERENCES_NAME = "sync_clipboard_runtime"
         const val KEY_ENCRYPTED_SERVER_PROFILES = "server_profiles_encrypted_v1"
         const val KEY_SERVER_PROFILES = "server_profiles"
         const val KEY_ACTIVE_SERVER_ID = "activeServerId"
@@ -315,8 +400,12 @@ class SettingsRepository(
         const val KEY_FILE_SAVE_TREE_URI = "file_save_tree_uri"
         const val KEY_POLLING_INTERVAL_SECONDS = "polling_interval_seconds"
         const val KEY_LAST_AUTOMATIC_REMOTE_HASH = "last_automatic_remote_hash"
-    const val KEY_LOCAL_CLIPBOARD_HASH = "local_clipboard_hash"
-    const val KEY_LOCAL_CLIPBOARD_HASH_ELAPSED = "local_clipboard_hash_elapsed_millis"
+        const val KEY_LOCAL_CLIPBOARD_HASH = "local_clipboard_hash"
+        const val KEY_LOCAL_CLIPBOARD_HASH_ELAPSED = "local_clipboard_hash_elapsed_millis"
         const val KEY_PENDING_AUTOMATIC_TEXT = "pending_automatic_text"
+        const val KEY_SERVER_CONFIG_TOKEN = "server_config_token"
+        const val KEY_RUNTIME_SERVER_TOKEN = "runtime_server_config_token"
+        const val KEY_AUTOMATIC_SYNC_TIME = "automatic_sync_time"
+        const val KEY_AUTOMATIC_SYNC_DIRECTION = "automatic_sync_direction"
     }
 }
