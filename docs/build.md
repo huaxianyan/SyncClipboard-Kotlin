@@ -118,14 +118,28 @@ Windows 请使用 Git Bash，确保 `awk`、`grep`、`jar`、`java` 和 `sha256s
 
 ## 模块版本
 
-主体应用和系统扩展共用 `gradle.properties` 中的版本定义：
+主体应用与系统扩展各自独立维护版本，分别定义在 `gradle.properties`：
 
 ```properties
+# 主体应用
 syncClipboard.versionCode=<递增整数>
 syncClipboard.versionName=<版本号>
+
+# 系统扩展，版本名带 -ext 后缀，与主体的标签区分开
+syncClipboard.extension.versionCode=<递增整数>
+syncClipboard.extension.versionName=<版本号>-ext
 ```
 
-发布时只更新这一处，两个模块会生成相同版本的配套 APK。推送 `v*` 标签前，还应创建与标签同名的 `docs/release-notes/<tag>.md`。发布工作流会将该文件作为 GitHub Release 正文，缺失时停止发布。
+两者不必同时发布，只在自身有改动时才递增版本号。没有改动的模块不重新打包，Release 里也就不会出现它的新版本。
+
+发布哪些模块由标签决定：
+
+- `vX.Y.Z`：发布主体应用。若系统扩展版本号的数字部分也是 `X.Y.Z`，一并发布。
+- `vX.Y.Z-ext`：只发布系统扩展。
+
+本地构建可以用 `-Prelease.modules` 指定，例如 `./gradlew distRelease -Prelease.modules=app` 只产出主体 APK。不传则两个模块都构建。`build/dist` 里只会有本次选中的模块。
+
+推送 `v*` 标签前，还应创建与标签同名的 `docs/release-notes/<tag>.md`。发布工作流会将该文件作为 GitHub Release 正文，缺失时停止发布。
 
 发布说明要短，由 `scripts/verify_release_notes.py` 校验，工作流在发布前会跑一次：
 

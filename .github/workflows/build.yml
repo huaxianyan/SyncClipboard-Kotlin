@@ -57,8 +57,34 @@ jobs:
         env:
           SYNC_CLIPBOARD_KEYSTORE_BASE64: ${{ secrets.SYNC_CLIPBOARD_KEYSTORE_BASE64 }}
         run: printf '%s' "$SYNC_CLIPBOARD_KEYSTORE_BASE64" | base64 --decode > "$SYNC_CLIPBOARD_STORE_FILE"
+      - name: Resolve release modules
+        run: |
+          # 主体与系统扩展各自独立发版，标签决定这次发布哪些模块。
+          # vX.Y.Z 发主体，vX.Y.Z-ext 发扩展；主体发版时若扩展的数字部分相同则一起发。
+          if [[ "$GITHUB_REF" != refs/tags/v* ]]; then
+            echo "RELEASE_MODULES=app,extension" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          tag="${GITHUB_REF_NAME#v}"
+          app_version="$(awk -F= '$1 == "syncClipboard.versionName" { print $2 }' gradle.properties)"
+          extension_version="$(awk -F= '$1 == "syncClipboard.extension.versionName" { print $2 }' gradle.properties)"
+          modules=()
+          if [[ "$tag" == *-ext ]]; then
+            if [[ "$extension_version" == "$tag" ]]; then modules+=(extension); fi
+          else
+            if [[ "$app_version" == "$tag" ]]; then modules+=(app); fi
+            if [[ "${extension_version%-ext}" == "$tag" ]]; then modules+=(extension); fi
+          fi
+          if [[ ${#modules[@]} -eq 0 ]]; then
+            echo "标签 $GITHUB_REF_NAME 与 gradle.properties 中的版本不匹配" >&2
+            exit 1
+          fi
+          joined="$(IFS=,; echo "${modules[*]}")"
+          echo "本次发布的模块：$joined"
+          echo "RELEASE_MODULES=$joined" >> "$GITHUB_ENV"
+
       - name: Build signed release APKs
-        run: ./gradlew distRelease
+        run: ./gradlew distRelease -Prelease.modules="$RELEASE_MODULES"
       - name: Verify release APKs
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then

@@ -13,8 +13,8 @@ android {
         applicationId = "com.neko7ina.syncclipboard.extension"
         minSdk = 29
         targetSdk = 37
-        versionCode = providers.gradleProperty("syncClipboard.versionCode").get().toInt()
-        versionName = providers.gradleProperty("syncClipboard.versionName").get()
+        versionCode = providers.gradleProperty("syncClipboard.extension.versionCode").get().toInt()
+        versionName = providers.gradleProperty("syncClipboard.extension.versionName").get()
     }
 
     buildTypes {
