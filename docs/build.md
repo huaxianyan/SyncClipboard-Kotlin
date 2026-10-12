@@ -122,16 +122,37 @@ syncClipboard.versionName=<版本号>
 发布说明要短，由 `scripts/verify_release_notes.py` 校验，工作流在发布前会跑一次：
 
 - 正文不超过 40 行，首行不能是一级标题
-- 必须包含 `## 主要更新`
+- 新功能与问题修复分成 `## 新功能` 与 `## 问题修复` 两节，至少出现其中一节，每节至少一条 `- ` 条目
+- 用户可感知的其他改进另设 `## 改进`（例如更换图标），本项目同样把它当作合法分类节
 - 必须链接到详细记录，链接指向 `blob/v<版本>/` 下的文档
 - 不写 `## 使用说明`、`## 真机验收`、`## 构建与兼容范围` 和 `## 兼容边界`，这些内容属于 `docs/architecture.md`
+- `## 版本信息` 与 `## 构建信息` 至多出现一个，后者由工作流追加
 
-本地可以先跑一次：
+本地可以先跑一次，并跑一遍门禁自身的回归测试：
 
 ```bash
 python3 scripts/verify_release_notes.py --tag vX.Y.Z
+python3 scripts/test_verify_release_notes.py
 ```
 
 发布工作流还会在正文末尾追加 `## 构建信息`，列出标签与两个 APK 的 SHA-256。发布说明本身不要再写这一节。
 
-Release 的标题就是标签本身，例如 `v0.2.0`，不添加产品名前缀。这样左侧的 Release 列表会直接显示版本号，而不是一列相同的产品名。
+Release 的标题就是标签本身，例如 `v0.2.1`，不添加产品名前缀。这样左侧的 Release 列表会直接显示版本号，而不是一列相同的产品名。
+
+## 品牌资源
+
+启动图标放在 `branding/res`。`:app` 与 `:system-extension` 都通过 `res.srcDir` 挂载这一份目录，改一处两个包同时生效，但构建要跑两个模块才会同时更新产物。
+
+```text
+branding/res/drawable-{m,h,xh,xxh,xxxh}dpi/ic_launcher_foreground.png  前景位图
+branding/res/drawable/ic_launcher_background.xml                       底色矢量，引用下面的颜色
+branding/res/values/colors.xml                                         launcher_background
+branding/res/mipmap-anydpi-v26/ic_launcher.xml                         自适应图标
+branding/res/mipmap-anydpi-v33/ic_launcher.xml                         自适应图标与 Android 13 单色图标
+```
+
+设计稿按自适应图标规范绘制（圆角方块占画布约 66.7%）时，把设计稿的方块对齐到 **72dp 安全区**，只导出图形部分作为透明前景，底色取设计稿自己的颜色。这样内容最大半径落在 33dp 安全圈以内，换图前后桌面上的视觉分量保持一致。
+
+只取方块内部的像素还原前景透明度。设计稿方块边缘的抗锯齿常常是「不透明白色混合」而不是真正的半透明，直接抠图会在圆角处留一圈白晕。
+
+启动图标修改自上游 [Jeric-X/SyncClipboard](https://github.com/Jeric-X/SyncClipboard) 的图标，版权与许可声明见 `LICENSES/MIT-SyncClipboard.txt`。

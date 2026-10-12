@@ -21,6 +21,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v5
       - name: Test, lint and build
         run: ./gradlew testDebugUnitTest lintDebug assembleDebug
+      - name: Test release notes gate
+        run: python3 scripts/test_verify_release_notes.py
       - uses: actions/upload-artifact@v5
         with:
           name: SyncClipboard-Kotlin-debug
