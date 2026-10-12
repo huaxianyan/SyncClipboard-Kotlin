@@ -4,7 +4,8 @@ final TaskProvider<Copy> generateLicenseAsset = tasks.register('generateLicenseA
     into generatedLicenseAssets
 }
 
-android.sourceSets.main.assets.srcDir(generatedLicenseAssets)
+android.sourceSets.main.assets.directories.add(generatedLicenseAssets.get().asFile.absolutePath)
+
 tasks.named('preBuild').configure {
     dependsOn generateLicenseAsset
 }

@@ -122,6 +122,11 @@ import com.neko7ina.syncclipboard.extension.SystemExtensionController
 import com.neko7ina.syncclipboard.extension.SystemExtensionState
 import com.neko7ina.syncclipboard.extension.SystemExtensionStatus
 import com.neko7ina.syncclipboard.net.SyncClipboardClient
+import com.neko7ina.syncclipboard.net.LocalNetworkAccess
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.foundation.layout.imePadding
 import com.neko7ina.syncclipboard.sync.AutomaticSyncEvent
 import com.neko7ina.syncclipboard.sync.AutomaticSyncEventKind
 import com.neko7ina.syncclipboard.sync.AutomaticSyncEventStore
@@ -216,6 +221,22 @@ private fun SyncClipboardApp(
         SystemExtensionController(context.applicationContext) { extensionState = it }
     }
 
+    val requestLocalNetworkPermission = rememberLocalNetworkPermissionRequester {
+        extensionController.reloadConfiguration()
+        checkRequest++
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                checkRequest++
+                extensionController.reloadConfiguration()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     DisposableEffect(extensionController) {
         extensionController.start()
         onDispose(extensionController::stop)
@@ -244,7 +265,7 @@ private fun SyncClipboardApp(
         connectionStatus = ConnectionStatus.CHECKING
         connectionFailure = null
         connectionStatus = runCatching {
-            withContext(Dispatchers.IO) { SyncClipboardClient(checkedServer).testConnection() }
+            withContext(Dispatchers.IO) { SyncClipboardClient(checkedServer, context).testConnection() }
         }.fold(
             onSuccess = { ConnectionStatus.CONNECTED },
             onFailure = {
@@ -339,6 +360,7 @@ private fun SyncClipboardApp(
             }
         },
         snackbarHost = { SnackbarHost(snackbar) },
+        modifier = Modifier.imePadding(),
     ) { contentPadding ->
         Box(modifier = Modifier.fillMaxSize()) {
             AnimatedContent(
@@ -362,7 +384,13 @@ private fun SyncClipboardApp(
                         server = server,
                         connectionStatus = connectionStatus,
                         connectionFailure = connectionFailure,
-                        onRetryConnection = { checkRequest++ },
+                        onRetryConnection = {
+                            scope.launch {
+                                server?.let { requestLocalNetworkPermission(it) }
+                                checkRequest++
+                                extensionController.reloadConfiguration()
+                            }
+                        },
                         onOpenAutomaticSyncEvents = {
                             currentPage = AppPage.AUTOMATIC_SYNC_EVENTS
                         },
@@ -373,6 +401,7 @@ private fun SyncClipboardApp(
                         extensionState = extensionState,
                         extensionController = extensionController,
                         showMessage = ::showMessage,
+                        requestLocalNetworkPermission = requestLocalNetworkPermission,
                         onServerChanged = ::updateServer,
                         onOpenTextSyncHistory = { currentPage = AppPage.TEXT_SYNC_HISTORY },
                     )
@@ -516,7 +545,7 @@ private fun ConnectionCard(
                 enabled = status != ConnectionStatus.CHECKING,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(if (status == ConnectionStatus.CHECKING) "正在检查" else "重新检查")
+                Text(if (status == ConnectionStatus.CHECKING) "正在检查" else if (failure == SyncFailureKind.PERMISSION) "允许局域网访问" else "重新检查")
             }
         }
     }
@@ -899,6 +928,7 @@ private fun formatStaleAge(ageMillis: Long): String = when {
 private fun syncFailureTitle(failure: SyncFailureKind?, fallbackTitle: String): String = when (failure) {
     SyncFailureKind.AUTHENTICATION -> "服务器认证失败"
     SyncFailureKind.NETWORK -> "无法连接服务器"
+    SyncFailureKind.PERMISSION -> "需要局域网访问权限"
     SyncFailureKind.TLS -> "HTTPS 证书验证失败"
     SyncFailureKind.SERVER -> "服务器响应异常"
     SyncFailureKind.STORAGE -> "文件保存失败"
@@ -911,6 +941,7 @@ private fun syncFailureTitle(failure: SyncFailureKind?, fallbackTitle: String): 
 private fun syncFailureAction(failure: SyncFailureKind?): String = when (failure) {
     SyncFailureKind.AUTHENTICATION -> "请在设置中检查用户名和密码"
     SyncFailureKind.NETWORK -> "请检查网络连接和服务器地址"
+    SyncFailureKind.PERMISSION -> "请允许「附近设备」权限以访问局域网服务器"
     SyncFailureKind.TLS -> "请检查 HTTPS 证书或自签名证书设置"
     SyncFailureKind.SERVER -> "请确认服务正在运行且版本兼容"
     SyncFailureKind.STORAGE -> "请重新选择保存目录并检查可用空间"
@@ -981,6 +1012,7 @@ private fun SettingsPage(
     extensionState: SystemExtensionState,
     extensionController: SystemExtensionController,
     showMessage: (String) -> Unit,
+    requestLocalNetworkPermission: suspend (ServerConfig) -> Boolean,
     onServerChanged: (ServerConfig?) -> Unit,
     onOpenTextSyncHistory: () -> Unit,
 ) {
@@ -1293,8 +1325,9 @@ private fun SettingsPage(
                         testing = true
                         scope.launch {
                             runCatching {
+                                if (!requestLocalNetworkPermission(config)) throw LocalNetworkAccess.denied()
                                 withContext(Dispatchers.IO) {
-                                    SyncClipboardClient(config).testConnection()
+                                    SyncClipboardClient(config, context).testConnection()
                                 }
                             }.onSuccess {
                                 showMessage("连接成功")

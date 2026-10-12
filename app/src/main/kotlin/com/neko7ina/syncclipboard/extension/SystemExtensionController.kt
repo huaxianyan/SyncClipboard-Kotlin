@@ -134,6 +134,7 @@ class SystemExtensionController(
         BridgeContract.AUTOMATIC_SYNC_ERROR_NONE -> null
         BridgeContract.AUTOMATIC_SYNC_ERROR_AUTHENTICATION -> SyncFailureKind.AUTHENTICATION
         BridgeContract.AUTOMATIC_SYNC_ERROR_NETWORK -> SyncFailureKind.NETWORK
+        BridgeContract.AUTOMATIC_SYNC_ERROR_PERMISSION -> SyncFailureKind.PERMISSION
         BridgeContract.AUTOMATIC_SYNC_ERROR_TLS -> SyncFailureKind.TLS
         BridgeContract.AUTOMATIC_SYNC_ERROR_SERVER -> SyncFailureKind.SERVER
         BridgeContract.AUTOMATIC_SYNC_ERROR_STORAGE -> SyncFailureKind.STORAGE

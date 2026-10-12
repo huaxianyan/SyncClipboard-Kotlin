@@ -1,6 +1,5 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
@@ -9,12 +8,12 @@ apply(from = rootProject.file("gradle/license.gradle"))
 
 android {
     namespace = "com.neko7ina.syncclipboard"
-    compileSdk = 35
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.neko7ina.syncclipboard"
         minSdk = 29
-        targetSdk = 35
+        targetSdk = 37
         versionCode = providers.gradleProperty("syncClipboard.versionCode").get().toInt()
         versionName = providers.gradleProperty("syncClipboard.versionName").get()
 
@@ -31,15 +30,11 @@ android {
         }
     }
 
-    sourceSets.getByName("main").res.srcDir(rootProject.file("branding/res"))
+    sourceSets.getByName("main").res.directories.add(rootProject.file("branding/res").path)
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-    }
-
-    kotlinOptions {
-        jvmTarget = "17"
     }
 
     buildFeatures {
@@ -56,6 +51,7 @@ dependencies {
     implementation("org.slf4j:slf4j-nop:1.7.36")
 
     implementation("androidx.activity:activity-compose:1.10.1")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.compose.material3:material3:1.4.0")
     implementation("androidx.compose.material:material-icons-core:1.7.8")
     implementation("androidx.compose.ui:ui-tooling-preview:1.8.2")

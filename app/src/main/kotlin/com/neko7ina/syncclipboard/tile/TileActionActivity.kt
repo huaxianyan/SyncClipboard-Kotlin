@@ -1,6 +1,16 @@
 package com.neko7ina.syncclipboard.tile
 
 import android.app.Activity
+import android.app.AlertDialog
+import android.content.pm.PackageManager
+import android.os.Build
+import android.provider.Settings
+import android.net.Uri
+import android.view.WindowInsets
+import android.widget.ScrollView
+import com.neko7ina.syncclipboard.data.SettingsRepository
+import com.neko7ina.syncclipboard.net.LocalNetworkAccess
+import kotlinx.coroutines.CompletableDeferred
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -18,6 +28,8 @@ import android.widget.TextView
 import com.neko7ina.syncclipboard.R
 import com.neko7ina.syncclipboard.sync.ClipboardTransferService
 import com.neko7ina.syncclipboard.sync.toSyncUserMessage
+import com.neko7ina.syncclipboard.sync.toSyncFailureKind
+import com.neko7ina.syncclipboard.sync.SyncFailureKind
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -40,6 +52,7 @@ class TileActionActivity : Activity() {
     private lateinit var title: TextView
     private lateinit var message: TextView
     private var actionJob: Job? = null
+    private var pendingPermission: CompletableDeferred<Boolean>? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,6 +85,14 @@ class TileActionActivity : Activity() {
 
         actionJob = scope.launch {
             val result = runCatching {
+                if (!ensureLocalNetworkPermission()) throw LocalNetworkAccess.denied()
+                // 系统权限窗口关闭后，等当前窗口真正拿回焦点才能读取剪贴板。等不到就继续，
+                // 由实际操作给出结果，避免在这里死等。
+                var waitedMillis = 0L
+                while (!hasWindowFocus() && waitedMillis < FOCUS_WAIT_TIMEOUT_MILLIS) {
+                    delay(FOCUS_POLL_INTERVAL_MILLIS)
+                    waitedMillis += FOCUS_POLL_INTERVAL_MILLIS
+                }
                 withContext(Dispatchers.IO) {
                     val transfer = ClipboardTransferService(applicationContext)
                     when (action) {
@@ -95,9 +116,43 @@ class TileActionActivity : Activity() {
                 val userMessage = it.toSyncUserMessage(
                     "操作未完成，请检查服务器配置和网络后重试",
                 )
-                message.text = "$userMessage\n\n轻触卡片关闭"
-                card.setOnClickListener { finishAndRemoveTask() }
+                val permissionDenied = it.toSyncFailureKind() == SyncFailureKind.PERMISSION
+                message.text = "$userMessage\n\n${if (permissionDenied) "轻触卡片打开权限设置" else "轻触卡片关闭"}"
+                card.setOnClickListener {
+                    if (permissionDenied) {
+                        startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+                    }
+                    finishAndRemoveTask()
+                }
             }
+        }
+    }
+
+    private suspend fun ensureLocalNetworkPermission(): Boolean {
+        val needed = withContext(Dispatchers.IO) {
+            SettingsRepository(applicationContext).loadServer()?.let {
+                LocalNetworkAccess.needsPermission(this@TileActionActivity, it)
+            } ?: false
+        }
+        if (!needed) return true
+        val result = CompletableDeferred<Boolean>()
+        pendingPermission = result
+        AlertDialog.Builder(this)
+            .setTitle("允许连接局域网服务器")
+            .setMessage("Android 17 需要「附近设备」权限才能访问局域网中的 SyncClipboard Server。")
+            .setPositiveButton("继续授权") { _, _ ->
+                requestPermissions(arrayOf(LocalNetworkAccess.PERMISSION), LOCAL_NETWORK_REQUEST)
+            }
+            .setNegativeButton("取消") { _, _ -> result.complete(false) }
+            .setOnCancelListener { result.complete(false) }
+            .show()
+        return result.await().also { pendingPermission = null }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == LOCAL_NETWORK_REQUEST) {
+            pendingPermission?.complete(grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED)
         }
     }
 
@@ -167,15 +222,36 @@ class TileActionActivity : Activity() {
             message,
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
         )
-        root.addView(
-            card,
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.CENTER,
-            ).apply { width = dp(328) },
-        )
+        val scroll = ScrollView(this).apply {
+            addView(card, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        root.addView(scroll, FrameLayout.LayoutParams(dp(328), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+        root.setOnApplyWindowInsetsListener { view, insets ->
+            val left: Int
+            val top: Int
+            val right: Int
+            val bottom: Int
+            if (Build.VERSION.SDK_INT >= 30) {
+                val safe = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+                left = safe.left; top = safe.top; right = safe.right; bottom = safe.bottom
+            } else {
+                @Suppress("DEPRECATION")
+                val safe = android.graphics.Rect(insets.systemWindowInsetLeft, insets.systemWindowInsetTop, insets.systemWindowInsetRight, insets.systemWindowInsetBottom)
+                left = safe.left; top = safe.top; right = safe.right; bottom = safe.bottom
+            }
+            view.setPadding(dp(24) + left, dp(24) + top, dp(24) + right, dp(24) + bottom)
+            insets
+        }
+        root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            val width = minOf(dp(328), (root.width - root.paddingLeft - root.paddingRight).coerceAtLeast(1))
+            val height = (root.height - root.paddingTop - root.paddingBottom).coerceAtLeast(1)
+            val targetHeight = if (card.measuredHeight > height) height else ViewGroup.LayoutParams.WRAP_CONTENT
+            if (scroll.layoutParams.width != width || scroll.layoutParams.height != targetHeight) {
+                scroll.layoutParams = FrameLayout.LayoutParams(width, targetHeight, Gravity.CENTER)
+            }
+        }
         setContentView(root)
+        root.requestApplyInsets()
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
@@ -185,6 +261,9 @@ class TileActionActivity : Activity() {
     companion object {
         private const val TAG = "TileActionActivity"
         private const val SUCCESS_VISIBLE_DURATION_MS = 700L
+        private const val LOCAL_NETWORK_REQUEST = 1
+        private const val FOCUS_POLL_INTERVAL_MILLIS = 50L
+        private const val FOCUS_WAIT_TIMEOUT_MILLIS = 1_500L
         const val ACTION_UPLOAD = "com.neko7ina.syncclipboard.action.UPLOAD"
         const val ACTION_DOWNLOAD = "com.neko7ina.syncclipboard.action.DOWNLOAD"
     }

@@ -28,6 +28,7 @@ object BridgeContract {
     const val AUTOMATIC_SYNC_ERROR_CONTENT = 6
     const val AUTOMATIC_SYNC_ERROR_UNKNOWN = 7
     const val AUTOMATIC_SYNC_ERROR_BRIDGE = 8
+    const val AUTOMATIC_SYNC_ERROR_PERMISSION = 9
 
     const val HOST_PACKAGE = "com.neko7ina.syncclipboard"
     const val EXTENSION_PACKAGE = "com.neko7ina.syncclipboard.extension"

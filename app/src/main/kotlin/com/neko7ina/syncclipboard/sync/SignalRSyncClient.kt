@@ -1,6 +1,8 @@
 package com.neko7ina.syncclipboard.sync
 
 import androidx.annotation.Keep
+import android.content.Context
+import com.neko7ina.syncclipboard.net.LocalNetworkAccess
 import com.microsoft.signalr.HubConnection
 import com.microsoft.signalr.HubConnectionBuilder
 import com.microsoft.signalr.TransportEnum
@@ -12,6 +14,7 @@ import java.util.concurrent.TimeUnit
 
 class SignalRSyncClient(
     config: ServerConfig,
+    context: Context,
     onRemoteProfileChanged: (ClipboardPayload) -> Unit,
 ) {
     private val closed = CompletableDeferred<Throwable?>()
@@ -24,6 +27,7 @@ class SignalRSyncClient(
         )
         .setHttpClientBuilderCallback { builder ->
             HttpClientSecurity.configure(builder, config)
+            LocalNetworkAccess.configure(builder, context)
         }
         .build()
         .apply {

@@ -1,6 +1,5 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
 }
 
 apply(from = rootProject.file("gradle/signing.gradle"))
@@ -8,12 +7,12 @@ apply(from = rootProject.file("gradle/license.gradle"))
 
 android {
     namespace = "com.neko7ina.syncclipboard.extension"
-    compileSdk = 35
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.neko7ina.syncclipboard.extension"
         minSdk = 29
-        targetSdk = 35
+        targetSdk = 37
         versionCode = providers.gradleProperty("syncClipboard.versionCode").get().toInt()
         versionName = providers.gradleProperty("syncClipboard.versionName").get()
     }
@@ -24,16 +23,13 @@ android {
         }
     }
 
-    sourceSets.getByName("main").res.srcDir(rootProject.file("branding/res"))
+    sourceSets.getByName("main").res.directories.add(rootProject.file("branding/res").path)
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
 }
 
 dependencies {

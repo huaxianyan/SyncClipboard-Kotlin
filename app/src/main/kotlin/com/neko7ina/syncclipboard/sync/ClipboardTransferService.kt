@@ -307,7 +307,7 @@ class ClipboardTransferService(
             "尚未配置服务器，请先在应用设置中添加服务器",
             failureKind = SyncFailureKind.SERVER,
         )
-        return SyncClipboardClient(config)
+        return SyncClipboardClient(config, context)
     }
 
     private fun readClipItem(item: ClipData.Item, mimeType: String?): PreparedUpload {

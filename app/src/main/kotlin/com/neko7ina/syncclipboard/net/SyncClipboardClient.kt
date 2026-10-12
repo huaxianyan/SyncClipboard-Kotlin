@@ -6,6 +6,7 @@ import com.neko7ina.syncclipboard.sync.SyncException
 import com.neko7ina.syncclipboard.sync.SyncFailureKind
 import com.neko7ina.syncclipboard.sync.toSyncFailureKind
 import android.os.SystemClock
+import android.content.Context
 import android.util.Log
 import okhttp3.Call
 import okhttp3.Credentials
@@ -34,7 +35,8 @@ import javax.net.ssl.X509TrustManager
 
 class SyncClipboardClient(
     private val config: ServerConfig,
-    private val client: OkHttpClient = ClientCache.get(config),
+    context: Context,
+    private val client: OkHttpClient = ClientCache.get(config, context),
 ) {
     private val baseUrl = runCatching { config.normalizedUrl.toHttpUrl() }.getOrElse {
         throw SyncException(
@@ -157,6 +159,7 @@ class SyncClipboardClient(
     }
 
     private fun networkErrorMessage(error: IOException): String = when {
+        error.toSyncFailureKind() == SyncFailureKind.PERMISSION -> LocalNetworkAccess.DENIED_MESSAGE
         error.toSyncFailureKind() == SyncFailureKind.TLS ->
             "无法验证 HTTPS 证书，请检查证书或自签名证书设置后重试"
         error is java.net.SocketTimeoutException ->
@@ -181,16 +184,16 @@ private object ClientCache {
     @Volatile
     private var cached: Pair<ServerConfig, OkHttpClient>? = null
 
-    fun get(config: ServerConfig): OkHttpClient {
+    fun get(config: ServerConfig, context: Context): OkHttpClient {
         cached?.takeIf { it.first == config }?.let { return it.second }
         return synchronized(this) {
-            cached?.takeIf { it.first == config }?.second ?: build(config).also {
+            cached?.takeIf { it.first == config }?.second ?: build(config, context).also {
                 cached = config to it
             }
         }
     }
 
-    private fun build(config: ServerConfig): OkHttpClient {
+    private fun build(config: ServerConfig, context: Context): OkHttpClient {
         val builder = OkHttpClient.Builder()
             .eventListenerFactory { NetworkTimingEventListener() }
             .connectTimeout(5, TimeUnit.SECONDS)
@@ -199,6 +202,7 @@ private object ClientCache {
             .retryOnConnectionFailure(true)
 
         HttpClientSecurity.configure(builder, config)
+        LocalNetworkAccess.configure(builder, context)
         return builder.build()
     }
 }

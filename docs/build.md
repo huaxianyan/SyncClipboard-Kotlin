@@ -3,10 +3,12 @@
 ## 环境要求
 
 - JDK 17
-- Android SDK 35
+- Android SDK 37（API 37）
 - Android 10（API 29）或更高版本的测试设备
 
-项目使用 Gradle Wrapper，不需要单独安装 Gradle。
+构建工具链固定为 AGP 9.1.1 与 Gradle 9.3.1。AGP 9 起内置 Kotlin 支持，模块不再单独应用 `org.jetbrains.kotlin.android`，JVM 目标版本由 `compileOptions` 统一决定。
+
+项目使用 Gradle Wrapper，不需要单独安装 Gradle。首次下载发行包走网络，需要代理时给 Gradle 进程加上 `-Dhttps.proxyHost` 与 `-Dhttps.proxyPort`。
 
 ## Debug 构建
 
@@ -141,7 +143,7 @@ Release 的标题就是标签本身，例如 `v0.2.1`，不添加产品名前缀
 
 ## 品牌资源
 
-启动图标放在 `branding/res`。`:app` 与 `:system-extension` 都通过 `res.srcDir` 挂载这一份目录，改一处两个包同时生效，但构建要跑两个模块才会同时更新产物。
+启动图标放在 `branding/res`。`:app` 与 `:system-extension` 都通过 `res.directories` 挂载这一份目录，改一处两个包同时生效，但构建要跑两个模块才会同时更新产物。
 
 ```text
 branding/res/drawable-{m,h,xh,xxh,xxxh}dpi/ic_launcher_foreground.png  前景位图

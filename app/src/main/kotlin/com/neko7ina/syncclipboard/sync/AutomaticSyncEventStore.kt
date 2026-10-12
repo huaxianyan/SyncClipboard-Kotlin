@@ -146,6 +146,7 @@ internal class AutomaticSyncEventStore(
 
         fun SyncFailureKind.storageCode(): String = when (this) {
             SyncFailureKind.AUTHENTICATION -> "authentication"
+            SyncFailureKind.PERMISSION -> "permission"
             SyncFailureKind.NETWORK -> "network"
             SyncFailureKind.TLS -> "tls"
             SyncFailureKind.SERVER -> "server"
@@ -157,6 +158,7 @@ internal class AutomaticSyncEventStore(
 
         fun failureKindFromStorageCode(value: String): SyncFailureKind? = when (value) {
             "authentication" -> SyncFailureKind.AUTHENTICATION
+            "permission" -> SyncFailureKind.PERMISSION
             "network" -> SyncFailureKind.NETWORK
             "tls" -> SyncFailureKind.TLS
             "server" -> SyncFailureKind.SERVER

@@ -70,6 +70,8 @@ SyncClipboard Kotlin 是面向 Android 的原生 SyncClipboard 客户端，用�
 
 主体应用最低支持 Android 10（API 29）。手动同步不需要 Root、LSPosed 或系统扩展。
 
+在 Android 17 上，连接局域网内的服务器需要允许「附近设备」权限。首次检查连接或执行同步时应用会请求授权，拒绝后局域网同步不可用，公网服务器不受影响。
+
 ### 系统扩展
 
 1. 安装与主体应用配套发布的系统扩展 APK。

@@ -411,7 +411,7 @@ class SystemBridgeService : Service() {
         remoteClockOffsetMillis = calibrateServerClock()
         while (currentCoroutineContext().isActive && shouldRunRemoteSync()) {
             val server = repository.loadServer() ?: return
-            val client = SignalRSyncClient(server, ::handleRemoteProfile)
+            val client = SignalRSyncClient(server, this, ::handleRemoteProfile)
             try {
                 val settings = repository.loadAdvancedSyncSettings()
                 if (
@@ -844,6 +844,7 @@ class SystemBridgeService : Service() {
     ) {
         SyncFailureKind.AUTHENTICATION -> BridgeContract.AUTOMATIC_SYNC_ERROR_AUTHENTICATION
         SyncFailureKind.NETWORK -> BridgeContract.AUTOMATIC_SYNC_ERROR_NETWORK
+        SyncFailureKind.PERMISSION -> BridgeContract.AUTOMATIC_SYNC_ERROR_PERMISSION
         SyncFailureKind.TLS -> BridgeContract.AUTOMATIC_SYNC_ERROR_TLS
         SyncFailureKind.SERVER -> BridgeContract.AUTOMATIC_SYNC_ERROR_SERVER
         SyncFailureKind.STORAGE -> BridgeContract.AUTOMATIC_SYNC_ERROR_STORAGE

@@ -1,6 +1,7 @@
 package com.neko7ina.syncclipboard.sync
 
 import org.json.JSONObject
+import com.neko7ina.syncclipboard.net.LocalNetworkPermissionException
 import java.io.IOException
 import javax.net.ssl.SSLException
 
@@ -64,6 +65,7 @@ data class PreparedUpload(
 
 enum class SyncFailureKind {
     AUTHENTICATION,
+    PERMISSION,
     NETWORK,
     TLS,
     SERVER,
@@ -84,6 +86,7 @@ fun Throwable.toSyncFailureKind(): SyncFailureKind {
     causes.filterIsInstance<SyncException>()
         .firstOrNull { it.failureKind != SyncFailureKind.UNKNOWN }
         ?.let { return it.failureKind }
+    if (causes.any { it is LocalNetworkPermissionException }) return SyncFailureKind.PERMISSION
     if (causes.any { it is SSLException }) return SyncFailureKind.TLS
     if (causes.any { it is IOException }) return SyncFailureKind.NETWORK
     return SyncFailureKind.UNKNOWN
