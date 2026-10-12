@@ -54,7 +54,7 @@ jobs:
           SYNC_CLIPBOARD_KEYSTORE_BASE64: ${{ secrets.SYNC_CLIPBOARD_KEYSTORE_BASE64 }}
         run: printf '%s' "$SYNC_CLIPBOARD_KEYSTORE_BASE64" | base64 --decode > "$SYNC_CLIPBOARD_STORE_FILE"
       - name: Build signed release APKs
-        run: ./gradlew assembleRelease
+        run: ./gradlew distRelease
       - name: Verify release APKs
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
@@ -65,8 +65,7 @@ jobs:
         with:
           name: SyncClipboard-Kotlin-release
           path: |
-            app/build/outputs/apk/release/app-release.apk
-            system-extension/build/outputs/apk/release/system-extension-release.apk
+            build/dist/*.apk
             build/release/SHA256SUMS
       - name: Verify release notes
         if: startsWith(github.ref, 'refs/tags/v')
@@ -91,23 +90,19 @@ jobs:
             printf '| 项目 | 值 |\n'
             printf '| --- | --- |\n'
             printf '| 版本 | `%s` |\n' "$GITHUB_REF_NAME"
-            for apk in \
-              app/build/outputs/apk/release/app-release.apk \
-              system-extension/build/outputs/apk/release/system-extension-release.apk; do
+            for apk in build/dist/*.apk; do
               printf '| %s SHA-256 | `%s` |\n' "${apk##*/}" "$(sha256sum "$apk" | cut -d' ' -f1)"
             done
           } > "$notes_out"
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release edit "$GITHUB_REF_NAME" --notes-file "$notes_out"
             gh release upload "$GITHUB_REF_NAME" \
-              app/build/outputs/apk/release/app-release.apk \
-              system-extension/build/outputs/apk/release/system-extension-release.apk \
+              build/dist/*.apk \
               build/release/SHA256SUMS \
               --clobber
           else
             gh release create "$GITHUB_REF_NAME" \
-              app/build/outputs/apk/release/app-release.apk \
-              system-extension/build/outputs/apk/release/system-extension-release.apk \
+              build/dist/*.apk \
               build/release/SHA256SUMS \
               --verify-tag \
               --title "$GITHUB_REF_NAME" \

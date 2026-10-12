@@ -12,8 +12,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION_CODE="$(awk -F= '$1 == "syncClipboard.versionCode" { print $2 }' "$ROOT_DIR/gradle.properties")"
 VERSION_NAME="$(awk -F= '$1 == "syncClipboard.versionName" { print $2 }' "$ROOT_DIR/gradle.properties")"
 EXPECTED_CERTIFICATE="$(tr -d '[:space:]' < "$ROOT_DIR/gradle/release-certificate.sha256")"
-APP_APK="$ROOT_DIR/app/build/outputs/apk/release/app-release.apk"
-EXTENSION_APK="$ROOT_DIR/system-extension/build/outputs/apk/release/system-extension-release.apk"
+# 发布产物由 `./gradlew distRelease` 收集到 build/dist，文件名带版本号。
+DIST_DIR="$ROOT_DIR/build/dist"
+APP_APK="$DIST_DIR/SyncClipboard-Kotlin-$VERSION_NAME.apk"
+EXTENSION_APK="$DIST_DIR/SyncClipboard-Kotlin-Extension-$VERSION_NAME.apk"
 CHECKSUM_FILE="$ROOT_DIR/build/release/SHA256SUMS"
 VERIFY_TEMP="$ROOT_DIR/build/release/verify-temp"
 rm -rf "$VERIFY_TEMP"
@@ -48,6 +50,7 @@ APKSIGNER_JAR="$BUILD_TOOLS_DIR/lib/apksigner.jar"
 for required in "$AAPT" "$APKSIGNER_JAR" "$APP_APK" "$EXTENSION_APK"; do
     if [[ ! -f "$required" ]]; then
         echo "Missing release verification input: $required" >&2
+        echo "请先运行 './gradlew distRelease' 构建并收集发布产物。" >&2
         exit 1
     fi
 done

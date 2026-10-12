@@ -68,15 +68,21 @@ SYNC_CLIPBOARD_KEY_PASSWORD
 配置签名后运行：
 
 ```bash
-./gradlew assembleRelease
+./gradlew distRelease
 ```
 
-产物位置：
+`distRelease` 先构建两个模块的 release APK，再按发布规则重命名并收集到 `build/dist`：
 
 ```text
-app/build/outputs/apk/release/app-release.apk
-system-extension/build/outputs/apk/release/system-extension-release.apk
+build/dist/SyncClipboard-Kotlin-<版本号>.apk
+build/dist/SyncClipboard-Kotlin-Extension-<版本号>.apk
 ```
+
+命名沿用谷歌拼音仓库的规则，即「项目名-版本号.apk」。两个模块都不含原生库，也没有 ABI 拆分，只产出通用 APK，因此不保留 ABI 段。系统扩展与主体同处一个仓库，靠 `Extension` 段区分，Obtainium 才能用文件名正则分别筛选。版本号取自 `gradle.properties` 的 `syncClipboard.versionName`。
+
+收集任务用 Gradle 的 `Sync` 而不是 `Copy`。文件名带版本号，换版本后旧产物必须被清掉，否则 `build/dist` 会同时留下多个版本。`Sync` 只在任务真正执行时才清理多余文件。Gradle 的 up-to-date 检查只比对已声明的输出文件，发现不了目录里多出来的文件。因此该任务强制每次都跑，保证 `build/dist` 的内容严格等于当前版本的产物。
+
+模块构建目录下的 `app-release.apk` 与 `system-extension-release.apk` 是未经重命名的中间产物，不要直接分发。只跑 `./gradlew assembleRelease` 不会生成发布命名的文件。
 
 发布前应确认两个 APK 的签名证书一致，并与已安装版本兼容。
 
@@ -98,7 +104,7 @@ SYNC_CLIPBOARD_KEY_PASSWORD
 
 其中 `SYNC_CLIPBOARD_KEYSTORE_BASE64` 保存 JKS 文件的 Base64 内容。工作流只在 Runner 临时目录恢复签名文件，不会将密钥写入仓库。
 
-Release 构建完成后，`scripts/verify-release.sh` 会检查标签与版本号、两个 APK 的包名与版本、生产证书指纹及内置许可证，并生成 `SHA256SUMS`。生产证书的公开 SHA-256 指纹只维护在 `gradle/release-certificate.sha256`，私钥仍仅存在于本地和 GitHub Actions Secrets。
+Release 构建完成后，`scripts/verify-release.sh` 会读取 `build/dist` 下的两个发布产物，检查标签与版本号、两个 APK 的包名与版本、生产证书指纹及内置许可证，并生成 `SHA256SUMS`。生产证书的公开 SHA-256 指纹只维护在 `gradle/release-certificate.sha256`，私钥仍仅存在于本地和 GitHub Actions Secrets。
 
 本地已有 Release APK 时，可在设置 `ANDROID_HOME` 或 `ANDROID_SDK_ROOT` 后执行：
 
@@ -153,7 +159,7 @@ branding/res/mipmap-anydpi-v26/ic_launcher.xml                         自适应
 branding/res/mipmap-anydpi-v33/ic_launcher.xml                         自适应图标与 Android 13 单色图标
 ```
 
-设计稿按自适应图标规范绘制（圆角方块占画布约 66.7%）时，把设计稿的方块对齐到 **72dp 安全区**，只导出图形部分作为透明前景，底色取设计稿自己的颜色。这样内容最大半径落在 33dp 安全圈以内，换图前后桌面上的视觉分量保持一致。
+设计稿按自适应图标规范绘制（圆角方块占画布约 66.7%）时，把设计稿的方块对齐到 **72 dp 安全区**，只导出图形部分作为透明前景，底色取设计稿自己的颜色。这样内容最大半径落在 33 dp 安全圈以内，换图前后桌面上的视觉分量保持一致。
 
 只取方块内部的像素还原前景透明度。设计稿方块边缘的抗锯齿常常是「不透明白色混合」而不是真正的半透明，直接抠图会在圆角处留一圈白晕。
 

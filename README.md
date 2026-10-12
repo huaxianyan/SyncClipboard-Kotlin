@@ -8,8 +8,28 @@ SyncClipboard Kotlin 是面向 Android 的原生 SyncClipboard 客户端，用�
 
 请从 [GitHub Releases](https://github.com/huaxianyan/SyncClipboard-Kotlin/releases) 下载正式版本：
 
-- `app-release.apk`：主体应用，提供手动同步和全部设置
-- `system-extension-release.apk`：可选系统扩展，仅用于后台自动同步
+- `SyncClipboard-Kotlin-<版本号>.apk`：主体应用，提供手动同步和全部设置
+- `SyncClipboard-Kotlin-Extension-<版本号>.apk`：可选系统扩展，仅用于后台自动同步
+
+两个文件同属一个 Release，版本号一致，请一起下载同一版本。文件名中的版本号与 Release 标签相同，例如 `v0.2.1` 对应 `SyncClipboard-Kotlin-0.2.1.apk`。
+
+### 通过 Obtainium 安装与更新
+
+先在 Android 设备上安装 [Obtainium](https://obtainium.imranr.dev/)，再点击下方链接并确认导入。两个入口分别跟踪正式版本，已按 APK 文件名筛选，不会混选本体与扩展。
+
+[将主体应用添加到 Obtainium][obtainium-app]
+
+默认只需安装主体应用，即可使用手动同步和全部设置。最低支持 Android 10，不需要 Root、LSPosed 或增强模块。
+
+如需后台自动同步，再单独 [将增强模块添加到 Obtainium][obtainium-extension]。增强模块即系统扩展，不能独立使用，也不会在导入后自动启用。
+
+使用增强模块需要满足以下条件：
+
+- 设备已取得 Root 权限，并安装支持 libxposed API 102 的 LSPosed 环境。
+- 已安装主体应用，且本体与扩展来自同一正式发布版本。更新时请将两者一起更新到同一版本。
+- 在 LSPosed 中启用模块，作用域设为 SystemUI，并按模块管理器要求重启设备。随后在主体应用的「设置」中确认扩展连接，再开启后台自动同步。
+
+没有上述环境时，请只添加主体应用。完整操作见 [系统扩展使用方式](#系统扩展)。
 
 ## 功能
 
@@ -103,3 +123,6 @@ SyncClipboard Kotlin 是面向 Android 的原生 SyncClipboard 客户端，用�
 本项目采用 [GNU General Public License v3.0](LICENSE)（`GPL-3.0-only`）发布。
 
 启动图标沿用上游 [Jeric-X/SyncClipboard](https://github.com/Jeric-X/SyncClipboard) 的 MIT 许可，版权与许可声明见 [LICENSES/MIT-SyncClipboard.txt](LICENSES/MIT-SyncClipboard.txt)。
+
+[obtainium-app]: https://apps.obtainium.imranr.dev/redirect?r=obtainium%3A%2F%2Fapp%2F%257B%2522id%2522%253A%2522com.neko7ina.syncclipboard%2522%252C%2522url%2522%253A%2522https%253A%252F%252Fgithub.com%252Fhuaxianyan%252FSyncClipboard-Kotlin%2522%252C%2522author%2522%253A%2522huaxianyan%2522%252C%2522name%2522%253A%2522SyncClipboard%2520Kotlin%2522%252C%2522additionalSettings%2522%253A%2522%257B%255C%2522apkFilterRegEx%255C%2522%253A%255C%2522%255ESyncClipboard-Kotlin-%255C%255C%255C%255Cd%252B%255C%255C%255C%255C.%255C%255C%255C%255Cd%252B%255C%255C%255C%255C.%255C%255C%255C%255Cd%252B.%252A%255C%255C%255C%255C.apk%2524%255C%2522%252C%255C%2522includePrereleases%255C%2522%253Afalse%252C%255C%2522versionDetection%255C%2522%253Atrue%252C%255C%2522appName%255C%2522%253A%255C%2522SyncClipboard%2520Kotlin%255C%2522%257D%2522%257D
+[obtainium-extension]: https://apps.obtainium.imranr.dev/redirect?r=obtainium%3A%2F%2Fapp%2F%257B%2522id%2522%253A%2522com.neko7ina.syncclipboard.extension%2522%252C%2522url%2522%253A%2522https%253A%252F%252Fgithub.com%252Fhuaxianyan%252FSyncClipboard-Kotlin%2522%252C%2522author%2522%253A%2522huaxianyan%2522%252C%2522name%2522%253A%2522SyncClipboard%2520%25E7%25B3%25BB%25E7%25BB%259F%25E6%2589%25A9%25E5%25B1%2595%2522%252C%2522additionalSettings%2522%253A%2522%257B%255C%2522apkFilterRegEx%255C%2522%253A%255C%2522%255ESyncClipboard-Kotlin-Extension-%255C%255C%255C%255Cd%252B%255C%255C%255C%255C.%255C%255C%255C%255Cd%252B%255C%255C%255C%255C.%255C%255C%255C%255Cd%252B.%252A%255C%255C%255C%255C.apk%2524%255C%2522%252C%255C%2522includePrereleases%255C%2522%253Afalse%252C%255C%2522versionDetection%255C%2522%253Atrue%252C%255C%2522appName%255C%2522%253A%255C%2522SyncClipboard%2520%25E7%25B3%25BB%25E7%25BB%259F%25E6%2589%25A9%25E5%25B1%2595%255C%2522%257D%2522%257D
