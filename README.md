@@ -11,7 +11,7 @@ SyncClipboard Kotlin 是面向 Android 的原生 SyncClipboard 客户端，用�
 - `SyncClipboard-Kotlin-<版本号>.apk`：主体应用，提供手动同步和全部设置
 - `SyncClipboard-Kotlin-Extension-<版本号>.apk`：可选系统扩展，仅用于后台自动同步
 
-两个文件同属一个 Release，版本号一致，请一起下载同一版本。文件名中的版本号与 Release 标签相同，例如 `v0.2.1` 对应 `SyncClipboard-Kotlin-0.2.1.apk`。
+两个文件同属一个 Release，版本号一致，请一起下载同一版本。文件名中的版本号与 Release 标签相同，例如 `v0.3.0` 对应 `SyncClipboard-Kotlin-0.3.0.apk`。
 
 ### 通过 Obtainium 安装与更新
 
