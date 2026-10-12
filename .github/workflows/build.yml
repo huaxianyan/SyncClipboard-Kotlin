@@ -23,6 +23,10 @@ jobs:
         run: ./gradlew testDebugUnitTest lintDebug assembleDebug
       - name: Test release notes gate
         run: python3 scripts/test_verify_release_notes.py
+      - name: Test predictive back gate
+        run: |
+          python3 scripts/test_verify_motion.py
+          python3 scripts/verify_motion.py
       - uses: actions/upload-artifact@v5
         with:
           name: SyncClipboard-Kotlin-debug
