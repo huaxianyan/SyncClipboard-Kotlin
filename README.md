@@ -11,7 +11,7 @@ SyncClipboard Kotlin 是面向 Android 的原生 SyncClipboard 客户端，用�
 - `SyncClipboard-Kotlin-<版本号>.apk`：主体应用，提供手动同步和全部设置
 - `SyncClipboard-Kotlin-Extension-<版本号>.apk`：可选系统扩展，仅用于后台自动同步
 
-两个文件同属一个 Release，版本号一致，请一起下载同一版本。文件名中的版本号与 Release 标签相同，例如 `v0.3.0` 对应 `SyncClipboard-Kotlin-0.3.0.apk`。
+两个文件同属一个 Release，文件名中的版本号与 Release 标签相同，例如 `v0.3.0` 对应 `SyncClipboard-Kotlin-0.3.0.apk`。系统扩展的接口长期稳定，与主体应用不必版本号相同，只在扩展本身有更新时才需要替换。
 
 ### 通过 Obtainium 安装与更新
 
@@ -32,7 +32,7 @@ SyncClipboard Kotlin 是面向 Android 的原生 SyncClipboard 客户端，用�
 使用前需要满足以下条件：
 
 - 设备已取得 Root 权限，并安装支持 libxposed API 102 的 LSPosed 环境。
-- 已安装主体应用，且本体与扩展来自同一正式发布版本。更新时请将两者一起更新到同一版本。
+- 已安装主体应用。扩展与主体的版本号不必相同，主体应用更新后可以继续使用原来的扩展。
 - 在 LSPosed 中启用模块，作用域设为 SystemUI，并按模块管理器要求重启设备。随后在主体应用的「设置」中确认扩展连接，再开启后台自动同步。
 
 没有上述环境时，请只添加主体应用。完整操作见 [系统扩展使用方式](#系统扩展)。
@@ -62,7 +62,7 @@ SyncClipboard Kotlin 是面向 Android 的原生 SyncClipboard 客户端，用�
 - 系统扩展回调失效后通过状态变化或低频注册检查自动恢复
 - 用绿、黄、红三种状态区分正常运行、预期等待和同步错误
 
-自动同步是可选功能，需要安装配套系统扩展，并在支持 libxposed API 102 的 LSPosed 环境中为 SystemUI 启用作用域。系统扩展不包含界面、网络请求或独立配置。
+自动同步是可选功能，需要安装系统扩展，并在支持 libxposed API 102 的 LSPosed 环境中为 SystemUI 启用作用域。系统扩展不包含界面、网络请求或独立配置。
 
 ### 本地记录与界面
 
@@ -100,12 +100,12 @@ SyncClipboard Kotlin 是面向 Android 的原生 SyncClipboard 客户端，用�
 
 ### 系统扩展
 
-1. 安装与主体应用配套发布的系统扩展 APK。
+1. 安装系统扩展 APK。
 2. 在 LSPosed 中启用模块，并将作用域设为 SystemUI。
 3. 按模块管理器要求重新启动设备。
 4. 回到主体应用，在「设置」中确认扩展连接后开启后台自动同步。
 
-主体应用与系统扩展必须来自同一套正式发布产物。详细设计及安全边界见 [架构说明](docs/architecture.md)。
+系统扩展与主体应用来自同一仓库的正式发布产物，但两者版本号不必相同，扩展只在自身有更新时才需要替换。详细设计及安全边界见 [架构说明](docs/architecture.md)。
 
 ## 技术文档
 
