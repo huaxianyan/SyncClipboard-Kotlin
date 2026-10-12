@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
@@ -9,14 +10,19 @@
         <package android:name="com.neko7ina.syncclipboard.extension" />
     </queries>
 
+    <!-- 全应用接入预测性返回。这个属性从 API 33 起才被识别，更低的版本会直接忽略它，
+         行为与旧版一致，所以用 tools:targetApi 说明这是有意为之而不是漏了兼容处理。
+         API 33 至 35 的设备需要它才会走新路径；API 36 起由系统默认开启。 -->
     <application
         android:allowBackup="false"
+        android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher"
         android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
-        android:theme="@style/Theme.SyncClipboard">
+        android:theme="@style/Theme.SyncClipboard"
+        tools:targetApi="33">
 
         <activity
             android:name=".ui.MainActivity"

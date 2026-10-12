@@ -9,7 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -22,6 +22,9 @@ import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.SeekableTransitionState
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.rememberTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -90,6 +93,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -139,6 +143,7 @@ import com.neko7ina.syncclipboard.sync.toSyncFailureKind
 import com.neko7ina.syncclipboard.sync.toSyncUserMessage
 import com.neko7ina.syncclipboard.tile.DownloadClipboardTileService
 import com.neko7ina.syncclipboard.tile.UploadClipboardTileService
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -186,19 +191,22 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class AppPage(
-    val title: String,
-    val depth: Int,
-    val order: Int,
-) {
-    HOME("首页", depth = 0, order = 0),
-    TEXT_SYNC_HISTORY("文本同步历史", depth = 0, order = 1),
-    SETTINGS("设置", depth = 0, order = 2),
-    AUTOMATIC_SYNC_EVENTS("自动同步记录", depth = 1, order = 0),
-}
+/**
+ * 页面转场的三个阶段。
+ *
+ * 必须和「当前在哪一页」分开记：取消手势之后如果直接回到空闲，空闲分支会以为这是一次
+ * 普通切页，过早套上普通动画。有了这个阶段，取消恢复由空闲分支按「进度不为 0」单独识别。
+ */
+private enum class PageGesturePhase {
+    /** 没有手势，呈现与已提交的页面一致。 */
+    IDLE,
 
-private fun AppPage.isForwardFrom(initial: AppPage): Boolean =
-    depth > initial.depth || depth == initial.depth && order > initial.order
+    /** 手势进行中，进度只驱动呈现。 */
+    DRAGGING,
+
+    /** 手势已提交，正在把剩下的进度走完。 */
+    SETTLING,
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -286,26 +294,90 @@ private fun SyncClipboardApp(
         checkRequest++
     }
 
-    val secondaryParentPage = when (currentPage) {
-        AppPage.AUTOMATIC_SYNC_EVENTS -> AppPage.HOME
-        else -> null
+    val parentPage = currentPage.parentPage
+    val showingSecondaryPage = parentPage != null
+
+    // 页面转场宿主。currentPage 是**已提交**的页面，也是业务返回栈的唯一来源；
+    // pageTransition 只负责呈现，一轮手势可以先把它走到上一页而不动 currentPage。
+    val pageTransition = remember { SeekableTransitionState(currentPage) }
+    var gesturePhase by remember { mutableStateOf(PageGesturePhase.IDLE) }
+    var gestureProgress by remember { mutableFloatStateOf(0f) }
+
+    // 根页面不接管返回，交给系统做「回上一个 Activity／桌面」的预览。
+    PredictiveBackHandler(enabled = showingSecondaryPage) { backEvent ->
+        gesturePhase = PageGesturePhase.DRAGGING
+        gestureProgress = 0f
+        try {
+            backEvent.collect { gestureProgress = it.progress }
+            // 手势走完了，进入收尾。提交返回栈留到收尾动画结束之后。
+            gesturePhase = PageGesturePhase.SETTLING
+        } catch (cancellation: CancellationException) {
+            // 手势被取消。这里只把阶段退回空闲，恢复动画交给下面的空闲分支统一驱动：
+            // 这个协程此刻已经被取消，在异常分支里另起动画会立刻被一起取消掉。
+            gesturePhase = PageGesturePhase.IDLE
+            throw cancellation
+        }
     }
-    val showingSecondaryPage = secondaryParentPage != null
-    BackHandler(enabled = showingSecondaryPage) { currentPage = secondaryParentPage!! }
+
+    val transition = rememberTransition(pageTransition, label = "page transition")
+
+    when (gesturePhase) {
+        PageGesturePhase.DRAGGING -> LaunchedEffect(gestureProgress, parentPage) {
+            // 进度只驱动呈现。每一帧重开一次寻址，最后一次拿到的进度就是最终位置。
+            parentPage?.let { pageTransition.seekTo(gestureProgress.coerceIn(0f, 1f), it) }
+        }
+
+        PageGesturePhase.SETTLING -> LaunchedEffect(Unit) {
+            parentPage?.let { target ->
+                // 目标没变，进度从松手时的位置接着走完，剩下的路程按剩余进度折算。
+                pageTransition.animateTo(target, pageProgressSpec(pageTransition.fraction))
+                // 转场结束才提交。取消过的那些轮次不会在这里留下任何痕迹。
+                currentPage = target
+            }
+            gesturePhase = PageGesturePhase.IDLE
+        }
+
+        PageGesturePhase.IDLE -> LaunchedEffect(currentPage) {
+            if (pageTransition.currentState != currentPage) {
+                // 点击切页、顶部返回按钮：目标变了，进度从 0 走满全程。
+                pageTransition.animateTo(currentPage, pageProgressSpec(0f))
+            } else if (pageTransition.fraction != 0f) {
+                // 手势取消。目标页仍然是手势指向的那一页，把进度从当前位置收回 0，
+                // 呈现就退回当前页，返回栈从头到尾没有动过。
+                val fromFraction = pageTransition.fraction
+                animate(
+                    initialValue = fromFraction,
+                    targetValue = 0f,
+                    animationSpec = pageProgressSpec(fromFraction, 0f),
+                ) { value, _ ->
+                    // 这个动画块不是挂起函数，逐帧的寻址交给外层作用域执行。
+                    this@LaunchedEffect.launch {
+                        if (value > 0f) pageTransition.seekTo(value) else pageTransition.snapTo(currentPage)
+                    }
+                }
+            }
+        }
+    }
+
+    // 手势与收尾期间顶部栏跟随转场目标：页面已经朝上一页去了，标题和返回箭头还留在二级页
+    // 会自相矛盾。顶部栏是 Scaffold 级的共用组件，本身不随页面位移，所以这里只用固定的
+    // 300 ms 交叉淡化跟上，不做跟手位移。
+    val topBarPage =
+        if (gesturePhase == PageGesturePhase.IDLE) currentPage else transition.targetState
 
     Scaffold(
         topBar = {
             LargeTopAppBar(
                 title = {
                     AnimatedContent(
-                        targetState = currentPage,
+                        targetState = topBarPage,
                         transitionSpec = {
                             if (targetState.isForwardFrom(initialState)) {
-                                (fadeIn(pageTransition()) + slideInHorizontally(pageTransition()) { width -> width / 4 }) togetherWith
-                                    (fadeOut(pageTransition()) + slideOutHorizontally(pageTransition()) { width -> -width / 4 })
+                                (fadeIn(topBarMotion()) + slideInHorizontally(topBarMotion()) { width -> width / 4 }) togetherWith
+                                    (fadeOut(topBarMotion()) + slideOutHorizontally(topBarMotion()) { width -> -width / 4 })
                             } else {
-                                (fadeIn(pageTransition()) + slideInHorizontally(pageTransition()) { width -> -width / 4 }) togetherWith
-                                    (fadeOut(pageTransition()) + slideOutHorizontally(pageTransition()) { width -> width / 4 })
+                                (fadeIn(topBarMotion()) + slideInHorizontally(topBarMotion()) { width -> -width / 4 }) togetherWith
+                                    (fadeOut(topBarMotion()) + slideOutHorizontally(topBarMotion()) { width -> width / 4 })
                             }
                         },
                         label = "top bar title",
@@ -315,11 +387,12 @@ private fun SyncClipboardApp(
                 },
                 navigationIcon = {
                     AnimatedVisibility(
-                        visible = secondaryParentPage != null,
+                        visible = topBarPage.parentPage != null,
                         enter = fadeIn() + slideInHorizontally { width -> -width },
                         exit = fadeOut() + slideOutHorizontally { width -> -width },
                     ) {
-                        IconButton(onClick = { secondaryParentPage?.let { currentPage = it } }) {
+                        // 点击目标始终是已提交的上一级，避免在手势进行中点到正在退场的图标。
+                        IconButton(onClick = { parentPage?.let { currentPage = it } }) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                         }
                     }
@@ -363,19 +436,20 @@ private fun SyncClipboardApp(
         modifier = Modifier.imePadding(),
     ) { contentPadding ->
         Box(modifier = Modifier.fillMaxSize()) {
-            AnimatedContent(
-                targetState = currentPage,
+            // 普通点击切页、顶部返回按钮和手势返回共用这一条转场。手势期间进度只驱动呈现，
+            // 提交与取消都由上面的状态机决定。
+            transition.AnimatedContent(
                 transitionSpec = {
-                    if (targetState.isForwardFrom(initialState)) {
-                        (fadeIn(pageTransition()) + slideInHorizontally(pageTransition()) { width -> width / 3 }) togetherWith
-                            (fadeOut(pageTransition()) + slideOutHorizontally(pageTransition()) { width -> -width / 3 })
-                    } else {
-                        (fadeIn(pageTransition()) + slideInHorizontally(pageTransition()) { width -> -width / 3 }) togetherWith
-                            (fadeOut(pageTransition()) + slideOutHorizontally(pageTransition()) { width -> width / 3 })
-                    }
+                    val forward = targetState.isForwardFrom(initialState)
+                    pageContentTransform(
+                        forward = forward,
+                        // 只有目标页能带 zIndex：返回时给负值，上一页才会画在当前页下面，
+                        // 否则当前页整页退出时会被上一页盖住。
+                        targetZIndex = if (forward) 1f else -1f,
+                    )
                 },
                 modifier = Modifier.fillMaxSize(),
-                label = "page transition",
+                contentKey = { it },
             ) { targetPage ->
                 when (targetPage) {
                     AppPage.HOME -> DashboardPage(
@@ -858,17 +932,18 @@ private fun TextSyncHistoryRow(
     }
 }
 
-/** 页面转场时长。底栏退出比它略长，让底栏多留一会儿再走。 */
-private const val PAGE_TRANSITION_MILLIS = 300
-
 /** 底栏入场时长。 */
 private const val BOTTOM_BAR_ENTER_MILLIS = 300
 
 /** 底栏退场时长。比入场长，这是刻意让整段滑出都看得见。 */
 private const val BOTTOM_BAR_EXIT_MILLIS = 420
 
-private fun <T> pageTransition(): FiniteAnimationSpec<T> =
-    tween(PAGE_TRANSITION_MILLIS, easing = FastOutSlowInEasing)
+/**
+ * 顶部栏标题与返回箭头的转场时长。和页面转场总时长取同一个值，让标题换字和页面换页
+ * 看起来是同一次动作。
+ */
+private fun <T> topBarMotion(): FiniteAnimationSpec<T> =
+    tween(PAGE_FOREGROUND_MILLIS, easing = FastOutSlowInEasing)
 
 /**
  * 底栏入场：减速就位（前段快、末段稳住），和页面转场同节奏。
