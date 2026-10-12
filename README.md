@@ -94,6 +94,10 @@ SyncClipboard Kotlin 是面向 Android 的原生 SyncClipboard 客户端，用�
 
 感谢这些项目及其贡献者。本项目是独立实现，并非上述项目的官方 Android 客户端。
 
+启动图标修改自 [Jeric-X/SyncClipboard](https://github.com/Jeric-X/SyncClipboard) 的图标，见下方许可证说明。
+
 ## 许可证
 
 本项目采用 [GNU General Public License v3.0](LICENSE)（`GPL-3.0-only`）发布。
+
+启动图标沿用上游 [Jeric-X/SyncClipboard](https://github.com/Jeric-X/SyncClipboard) 的 MIT 许可，版权与许可声明见 [LICENSES/MIT-SyncClipboard.txt](LICENSES/MIT-SyncClipboard.txt)。
