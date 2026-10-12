@@ -19,13 +19,13 @@ SyncClipboard Kotlin 是面向 Android 的原生 SyncClipboard 客户端，用�
 
 主体应用，提供手动同步和全部设置：
 
-[<img src="https://raw.githubusercontent.com/ImranR98/Obtainium/main/assets/graphics/badge_obtainium_i18n/badge_obtainium_zh-Hans.png" alt="通过 Obtainium 获取主体应用" height="48">][obtainium-app]
+[<img src="images/obtainium-badge.png" alt="通过 Obtainium 获取主体应用" height="48">][obtainium-app]
 
 默认只需安装主体应用，即可使用手动同步和全部设置。最低支持 Android 10，不需要 Root、LSPosed 或增强模块。
 
 增强模块（可选），仅用于后台自动同步：
 
-[<img src="https://raw.githubusercontent.com/ImranR98/Obtainium/main/assets/graphics/badge_obtainium_i18n/badge_obtainium_zh-Hans.png" alt="通过 Obtainium 获取增强模块" height="48">][obtainium-extension]
+[<img src="images/obtainium-badge.png" alt="通过 Obtainium 获取增强模块" height="48">][obtainium-extension]
 
 该模块即系统扩展，不能独立使用，也不会在导入后自动启用。
 
