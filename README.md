@@ -15,15 +15,21 @@ SyncClipboard Kotlin 是面向 Android 的原生 SyncClipboard 客户端，用�
 
 ### 通过 Obtainium 安装与更新
 
-先在 Android 设备上安装 [Obtainium](https://obtainium.imranr.dev/)，再点击下方链接并确认导入。两个入口分别跟踪正式版本，已按 APK 文件名筛选，不会混选本体与扩展。
+先在 Android 设备上安装 [Obtainium](https://obtainium.imranr.dev/)，再点击下方按钮并确认导入。两个入口分别跟踪正式版本，已按 APK 文件名筛选，不会混选本体与扩展。
 
-[将主体应用添加到 Obtainium][obtainium-app]
+主体应用，提供手动同步和全部设置：
+
+[<img src="https://raw.githubusercontent.com/ImranR98/Obtainium/main/assets/graphics/badge_obtainium_i18n/badge_obtainium_zh-Hans.png" alt="通过 Obtainium 获取主体应用" height="70">][obtainium-app]
 
 默认只需安装主体应用，即可使用手动同步和全部设置。最低支持 Android 10，不需要 Root、LSPosed 或增强模块。
 
-如需后台自动同步，再单独 [将增强模块添加到 Obtainium][obtainium-extension]。增强模块即系统扩展，不能独立使用，也不会在导入后自动启用。
+增强模块（可选），仅用于后台自动同步：
 
-使用增强模块需要满足以下条件：
+[<img src="https://raw.githubusercontent.com/ImranR98/Obtainium/main/assets/graphics/badge_obtainium_i18n/badge_obtainium_zh-Hans.png" alt="通过 Obtainium 获取增强模块" height="70">][obtainium-extension]
+
+该模块即系统扩展，不能独立使用，也不会在导入后自动启用。
+
+使用前需要满足以下条件：
 
 - 设备已取得 Root 权限，并安装支持 libxposed API 102 的 LSPosed 环境。
 - 已安装主体应用，且本体与扩展来自同一正式发布版本。更新时请将两者一起更新到同一版本。
