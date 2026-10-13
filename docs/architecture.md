@@ -2,13 +2,14 @@
 
 ## 模块
 
-项目由三个 Gradle 模块组成：
+本仓库由两个 Gradle 模块组成：
 
 | 模块 | 职责 |
 | --- | --- |
 | `app` | 主体应用，负责界面、配置、协议、网络、文件处理、Hash 校验和同步记录 |
-| `bridge-api` | 主体应用与系统扩展共用的 AIDL 接口及协议常量 |
-| `system-extension` | 注入 SystemUI 的无界面 LSPosed 扩展，只负责访问系统剪贴板和转发设备锁定状态 |
+| `bridge-api` | 与系统扩展共用的 AIDL 接口及协议常量 |
+
+系统扩展位于独立仓库 [SyncClipboard-Kotlin-Extension](https://github.com/huaxianyan/SyncClipboard-Kotlin-Extension)，是注入 SystemUI 的无界面 LSPosed 扩展，只负责访问系统剪贴板和转发设备锁定状态。`bridge-api` 在两个仓库各存一份副本，改动时需要手动同步两边，运行时由 `BridgeContract.PROTOCOL_VERSION` 兜底：版本不一致时主体应用拒绝注册，自动同步不可用。
 
 主体应用是唯一的配置和业务中心。系统扩展不保存服务器配置，不访问网络，也不维护数据库、历史记录或通知。
 

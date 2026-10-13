@@ -6,16 +6,15 @@ SyncClipboard Kotlin 是面向 Android 的原生 SyncClipboard 客户端，用�
 
 ## 下载
 
-请从 [GitHub Releases](https://github.com/huaxianyan/SyncClipboard-Kotlin/releases) 下载正式版本：
+请从 [GitHub Releases](https://github.com/huaxianyan/SyncClipboard-Kotlin/releases) 下载主体应用的正式版本：
 
 - `SyncClipboard-Kotlin-<版本号>.apk`：主体应用，提供手动同步和全部设置
-- `SyncClipboard-Kotlin-Extension-<版本号>-ext.apk`：可选系统扩展，仅用于后台自动同步
 
-主体应用与系统扩展各自独立发版，版本号互不相干，也不一定出现在同一个 Release 里。系统扩展的接口长期稳定，只在扩展本身有更新时才需要替换。扩展的版本号带 `-ext` 后缀，例如 `SyncClipboard-Kotlin-Extension-0.3.0-ext.apk` 对应标签 `v0.3.0-ext`。
+系统扩展已拆分到独立仓库 [SyncClipboard-Kotlin-Extension](https://github.com/huaxianyan/SyncClipboard-Kotlin-Extension)，从该仓库的 Releases 下载。两者版本号互不相干，各自独立发版，也不一定同时更新。系统扩展的接口长期稳定，只在扩展本身有更新时才需要替换。主体应用更新后可以继续使用原来的扩展。
 
 ### 通过 Obtainium 安装与更新
 
-先在 Android 设备上安装 [Obtainium](https://obtainium.imranr.dev/)，再点击下方按钮并确认导入。两个入口分别跟踪正式版本，已按 APK 文件名筛选，不会混选本体与扩展。
+先在 Android 设备上安装 [Obtainium](https://obtainium.imranr.dev/)，再点击下方按钮并确认导入。两个入口分别跟踪各自仓库的正式版本，已按 APK 文件名筛选，不会混选本体与扩展。
 
 主体应用，提供手动同步和全部设置：
 
@@ -105,7 +104,7 @@ SyncClipboard Kotlin 是面向 Android 的原生 SyncClipboard 客户端，用�
 3. 按模块管理器要求重新启动设备。
 4. 回到主体应用，在「设置」中确认扩展连接后开启后台自动同步。
 
-系统扩展与主体应用来自同一仓库的正式发布产物，但两者版本号不必相同，扩展只在自身有更新时才需要替换。详细设计及安全边界见 [架构说明](docs/architecture.md)。
+系统扩展位于独立仓库 [SyncClipboard-Kotlin-Extension](https://github.com/huaxianyan/SyncClipboard-Kotlin-Extension)，两者版本号不必相同，扩展只在自身有更新时才需要替换。详细设计及安全边界见 [架构说明](docs/architecture.md)。
 
 ## 技术文档
 
@@ -131,4 +130,4 @@ SyncClipboard Kotlin 是面向 Android 的原生 SyncClipboard 客户端，用�
 启动图标沿用上游 [Jeric-X/SyncClipboard](https://github.com/Jeric-X/SyncClipboard) 的 MIT 许可，版权与许可声明见 [LICENSES/MIT-SyncClipboard.txt](LICENSES/MIT-SyncClipboard.txt)。
 
 [obtainium-app]: https://apps.obtainium.imranr.dev/redirect?r=obtainium%3A%2F%2Fapp%2F%257B%2522id%2522%253A%2522com.neko7ina.syncclipboard%2522%252C%2522url%2522%253A%2522https%253A%252F%252Fgithub.com%252Fhuaxianyan%252FSyncClipboard-Kotlin%2522%252C%2522author%2522%253A%2522huaxianyan%2522%252C%2522name%2522%253A%2522SyncClipboard%2520Kotlin%2522%252C%2522additionalSettings%2522%253A%2522%257B%255C%2522apkFilterRegEx%255C%2522%253A%255C%2522%255ESyncClipboard-Kotlin-%255C%255C%255C%255Cd%252B%255C%255C%255C%255C.%255C%255C%255C%255Cd%252B%255C%255C%255C%255C.%255C%255C%255C%255Cd%252B.%252A%255C%255C%255C%255C.apk%2524%255C%2522%252C%255C%2522includePrereleases%255C%2522%253Afalse%252C%255C%2522versionDetection%255C%2522%253Atrue%252C%255C%2522appName%255C%2522%253A%255C%2522SyncClipboard%2520Kotlin%255C%2522%257D%2522%257D
-[obtainium-extension]: https://apps.obtainium.imranr.dev/redirect?r=obtainium%3A%2F%2Fapp%2F%257B%2522id%2522%253A%2522com.neko7ina.syncclipboard.extension%2522%252C%2522url%2522%253A%2522https%253A%252F%252Fgithub.com%252Fhuaxianyan%252FSyncClipboard-Kotlin%2522%252C%2522author%2522%253A%2522huaxianyan%2522%252C%2522name%2522%253A%2522SyncClipboard%2520%25E7%25B3%25BB%25E7%25BB%259F%25E6%2589%25A9%25E5%25B1%2595%2522%252C%2522additionalSettings%2522%253A%2522%257B%255C%2522apkFilterRegEx%255C%2522%253A%255C%2522%255ESyncClipboard-Kotlin-Extension-%255C%255C%255C%255Cd%252B%255C%255C%255C%255C.%255C%255C%255C%255Cd%252B%255C%255C%255C%255C.%255C%255C%255C%255Cd%252B.%252A%255C%255C%255C%255C.apk%2524%255C%2522%252C%255C%2522includePrereleases%255C%2522%253Afalse%252C%255C%2522versionDetection%255C%2522%253Atrue%252C%255C%2522appName%255C%2522%253A%255C%2522SyncClipboard%2520%25E7%25B3%25BB%25E7%25BB%259F%25E6%2589%25A9%25E5%25B1%2595%255C%2522%257D%2522%257D
+[obtainium-extension]: https://apps.obtainium.imranr.dev/redirect?r=obtainium%3A%2F%2Fapp%2F%257B%2522id%2522%253A%2522com.neko7ina.syncclipboard.extension%2522%252C%2522url%2522%253A%2522https%253A%252F%252Fgithub.com%252Fhuaxianyan%252FSyncClipboard-Kotlin-Extension%2522%252C%2522author%2522%253A%2522huaxianyan%2522%252C%2522name%2522%253A%2522SyncClipboard%2520%25E7%25B3%25BB%25E7%25BB%259F%25E6%2589%25A9%25E5%25B1%2595%2522%252C%2522additionalSettings%2522%253A%2522%257B%255C%2522apkFilterRegEx%255C%2522%253A%255C%2522%255ESyncClipboard-Kotlin-Extension-%255C%255C%255C%255Cd%252B%255C%255C%255C%255C.%255C%255C%255C%255Cd%252B%255C%255C%255C%255C.%255C%255C%255C%255Cd%252B.%252A%255C%255C%255C%255C.apk%2524%255C%2522%252C%255C%2522includePrereleases%255C%2522%253Afalse%252C%255C%2522versionDetection%255C%2522%253Atrue%252C%255C%2522appName%255C%2522%253A%255C%2522SyncClipboard%2520%25E7%25B3%25BB%25E7%25BB%259F%25E6%2589%25A9%25E5%25B1%2595%255C%2522%257D%2522%257D

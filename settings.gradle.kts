@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "SyncClipboard Kotlin"
-include(":app", ":bridge-api", ":system-extension")
+include(":app", ":bridge-api")
