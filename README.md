@@ -106,6 +106,10 @@ SyncClipboard Kotlin 是面向 Android 的原生 SyncClipboard 客户端，用�
 
 系统扩展位于独立仓库 [SyncClipboard-Kotlin-Extension](https://github.com/huaxianyan/SyncClipboard-Kotlin-Extension)，两者版本号不必相同，扩展只在自身有更新时才需要替换。详细设计及安全边界见 [架构说明](docs/architecture.md)。
 
+## 开发交接
+
+先读 [长期决策](docs/handoff/DECISIONS.md)，再读 [日期交接记录](docs/handoff/) 的最新条目。扩展有自己的交接入口，主体与扩展分别记录版本、验证和待办。
+
 ## 技术文档
 
 - [架构说明](docs/architecture.md)：模块职责、同步流程、网络生命周期和安全边界

@@ -26,7 +26,7 @@
 ## 中文文案与排版
 
 - 遵循 `chinese-tech-writing` 技能（阮一峰《中文技术文档的写作规范》加 AI 腔清单）。
-- **引号保留直角引号 `「」`**，不套用该标准的全角弯引号，两套标准在这点上相反。
+- **引号保留直角引号 `「」`**，与当前中文技能一致。旧记录中的引号标准冲突已失效。
 - 硬规则：逗号截 ≤ 30 汉字、整句 ≤ 100 汉字、中文与英文数字间留半角空格、全角标点、README 与发布说明禁用分号、尽量不用破折号。
 - 代码、命令、路径、URL、资源键与必须保持字节不变的技术标识不作机械改写。
 - **行尾不统一**：多数文件 CRLF（`core.autocrlf=true`），`docs/build.md`、`.gitignore`、`.github/workflows/build.yml` 是 LF。写多行匹配的补丁脚本要用 `io.open(..., newline="")` 读，按文件实际行尾换算模式里的 `\n`，否则多行匹配必失败。
@@ -57,7 +57,7 @@
 - 目标 SDK 37（Android 17），最低支持 Android 10（API 29）。
 - 工具链固定 AGP 9.1.1、Gradle 9.3.1、KGP 2.2.10。AGP 9 起内置 Kotlin，各模块都不再应用 `org.jetbrains.kotlin.android`，`kotlinOptions` 已移除，JVM 目标只由 `compileOptions` 决定。
 - AGP 9 的 SourceSet API 不再接受 `Provider`。资源目录改用 `directories` 可变集合（`:app` 挂 `branding/res`），生成的 LICENSE assets 也用 `directories.add(...)` 并保留 `preBuild dependsOn`。
-- 不用 `./gradlew`，改用 `java -classpath gradle/wrapper/gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain`。
+- 优先使用仓库 Wrapper。2026-10-13 历史验证确认 `./gradlew` 可用，旧限制已作废。需要绕开 shell 入口时，使用 `java -classpath gradle/wrapper/gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain` 等效调用，不另装 Gradle。
 - 完整校验是 `testDebugUnitTest`、`lintDebug`、`assembleRelease` 三项。
 - 构建走本地 HTTP 代理时给 Gradle 进程加代理参数，否则下载发行包会 `Connection reset`。具体值见本地 `AGENTS.md`。
 
