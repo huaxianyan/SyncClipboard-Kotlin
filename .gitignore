@@ -8,4 +8,13 @@
 .externalNativeBuild/
 .cxx/
 **/build/
-/.workbuddy/
+
+# Local assistant workspace (project-specific work records and memory).
+# These are helper-private directories, never project assets. Handoff and
+# progress records belong in docs/ and are committed with the code.
+.workbuddy/
+.workbuddy-ai/
+.pi/
+.claude/
+.cursor/
+outputs/
