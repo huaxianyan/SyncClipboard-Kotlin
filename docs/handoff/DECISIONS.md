@@ -40,6 +40,7 @@
 - 工作流会在正文后追加 `## 构建信息`（标签加各 APK 的 SHA-256），说明文件里不要再写这一节。
 - **Release 标题就是标签本身**（`v0.2.1`），不加产品名前缀。加前缀会让左侧 Release 列表变成一列被截断的同一个名字，看不出是哪个版本。
 - 顺序是先推 master 再推标签，master 那次失败还有机会修，发布成功后 Release 不可撤销。
+- 拆分前的历史 Release（主体 `v0.1.0`–`v0.3.0`）保留原有的扩展 APK 资产，不回删也不重传 `SHA256SUMS`。需要说明迁移时只改说明文字，用 `gh release edit --notes-file` 刷新，并保留工作流追加的 `## 构建信息`。主体 Release 此后只提供 `SyncClipboard-Kotlin-<版本号>.apk`，扩展的版本一律从扩展仓库获取。
 - 复核产物：`gh release view` 比对资产大小，再经本地代理下载，用 `apksigner verify --print-certs` 与 `aapt2 dump badging` 核对。`gh release download` 直连极慢，别用。
 - release 包走了 aapt2 crunch，PNG 被转成调色板 PNG 并重命名（`res/CH.png`），**不能按字节比对图标**，要按尺寸定位后逐像素核对，alpha 与可见像素一致即可。
 
