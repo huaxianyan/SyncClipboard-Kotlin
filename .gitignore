@@ -18,3 +18,5 @@
 .claude/
 .cursor/
 outputs/
+# Python bytecode cache left by the gate scripts in scripts/.
+__pycache__/
