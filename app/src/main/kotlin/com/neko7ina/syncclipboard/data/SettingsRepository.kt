@@ -195,6 +195,27 @@ class SettingsRepository(
     private fun currentServerToken(): String? = preferences.getString(KEY_SERVER_CONFIG_TOKEN, null)
 
     /**
+     * 「本次已记录过的跳过内容」。一份积压内容会随着循环重启被反复判定，判定本身要继续，
+     * 但诊断事件与历史条目只该记一次。换过服务器配置后作废，与 [loadLastAutomaticRemoteHash] 一致。
+     */
+    fun loadLastSkippedRemoteHash(): String? {
+        if (runtimePreferences.getString(KEY_RUNTIME_SERVER_TOKEN, null) != currentServerToken()) return null
+        return runtimePreferences.getString(KEY_LAST_SKIPPED_REMOTE_HASH, null)
+    }
+
+    fun saveLastSkippedRemoteHash(hash: String) {
+        runtimePreferences.edit()
+            .putString(KEY_LAST_SKIPPED_REMOTE_HASH, hash)
+            .putString(KEY_RUNTIME_SERVER_TOKEN, currentServerToken())
+            .apply()
+    }
+
+    /** 有内容被真正写入后清空：此后同一份内容再被跳过，属于新的判定。 */
+    fun clearLastSkippedRemoteHash() {
+        runtimePreferences.edit().remove(KEY_LAST_SKIPPED_REMOTE_HASH).apply()
+    }
+
+    /**
      * 本机剪贴板当前内容的哈希；不可信或从未登记时为 null。
      *
      * 与 [loadLastAutomaticRemoteHash] 的区别是语义：「上次同步点」表达「这个哈希我处理过」，
@@ -400,6 +421,7 @@ class SettingsRepository(
         const val KEY_FILE_SAVE_TREE_URI = "file_save_tree_uri"
         const val KEY_POLLING_INTERVAL_SECONDS = "polling_interval_seconds"
         const val KEY_LAST_AUTOMATIC_REMOTE_HASH = "last_automatic_remote_hash"
+        const val KEY_LAST_SKIPPED_REMOTE_HASH = "last_skipped_remote_hash"
         const val KEY_LOCAL_CLIPBOARD_HASH = "local_clipboard_hash"
         const val KEY_LOCAL_CLIPBOARD_HASH_ELAPSED = "local_clipboard_hash_elapsed_millis"
         const val KEY_PENDING_AUTOMATIC_TEXT = "pending_automatic_text"

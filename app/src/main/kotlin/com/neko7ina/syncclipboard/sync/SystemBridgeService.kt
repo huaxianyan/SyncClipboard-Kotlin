@@ -700,18 +700,27 @@ class SystemBridgeService : Service() {
             return null
         }
         val pausedAge = pausedWindowAgeMillis(payload, settings, transferService, fromRealtimePush)
+        val sourceHash = transferService.remoteHash(payload)
         if (pausedAge != null) {
-            // 归档进本地历史后跳过写入，并把同步点记成它，避免同一份旧内容被反复判定。
-            archiveStaleRemoteText(transferService, payload)
-            repository.saveLastAutomaticRemoteHash(transferService.remoteHash(payload))
-            recordAutomaticSyncEvent(
-                AutomaticSyncEventKind.STALE_WRITE_SKIPPED,
-                contentType = payload.type,
-                ageMillis = pausedAge,
-            )
+            // 同一条内容只归档与记录一次：窗口起点会随循环重启后移，而内容一直留在云端，
+            // 不拦住就会每次重启都多一条事件、多写一遍历史文件。
+            if (SkipReportPolicy.shouldReport(sourceHash, repository.loadLastSkippedRemoteHash())) {
+                archiveStaleRemoteText(transferService, payload)
+                recordAutomaticSyncEvent(
+                    AutomaticSyncEventKind.STALE_WRITE_SKIPPED,
+                    contentType = payload.type,
+                    ageMillis = pausedAge,
+                )
+                repository.saveLastSkippedRemoteHash(sourceHash)
+            }
+            // 同步点对齐到这份内容：图片与文件的去重、以及基线降级路径都依赖它。
+            repository.saveLastAutomaticRemoteHash(sourceHash)
             return null
         }
-        return transferService.applyRemoteAutomatically(payload, settings, writeText)
+        val newHash = transferService.applyRemoteAutomatically(payload, settings, writeText)
+        // 有内容真的写入了，之前记过的跳过项不再代表「当前这份没被处理过」，清空标记。
+        if (newHash != null) repository.clearLastSkippedRemoteHash()
+        return newHash
     }
 
     /**
