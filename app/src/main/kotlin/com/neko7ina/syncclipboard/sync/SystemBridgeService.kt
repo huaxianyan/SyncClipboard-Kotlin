@@ -94,6 +94,13 @@ class SystemBridgeService : Service() {
     @Volatile
     private var remoteClockOffsetMillis: Long? = null
 
+    /**
+     * 本轮恢复同步的时刻（本机时钟）。`syncedAt` 早于它的内容属于暂停窗口里积压的，
+     * 只归档不写入。为 null 表示还没有可信的窗口起点，此时退回 `createTime` 判定。
+     */
+    @Volatile
+    private var pauseWindowStartMillis: Long? = null
+
     private val remoteResumePolicy = RemoteSyncResumePolicy()
     private var pendingUploadJob: Job? = null
     private var clipboardWriteRetryJob: Job? = null
@@ -390,6 +397,8 @@ class SystemBridgeService : Service() {
                 signalRFailure = null
                 if (shouldRunRemoteSync()) {
                     if (!wasRunning) {
+                        // 记下恢复点：此后提交的内容才算「恢复同步之后」。
+                        pauseWindowStartMillis = System.currentTimeMillis()
                         // 循环从停摆状态重新启动。不论停摆原因是什么，这段空窗期云端都可能
                         // 已经产生新内容，一律先要求重建基线，避免把旧内容当成新内容写下去。
                         remoteResumePolicy.onAutomaticConditionLost(
@@ -509,19 +518,16 @@ class SystemBridgeService : Service() {
                 val settings = repository.loadAdvancedSyncSettings()
                 val transferService = ClipboardTransferService(this@SystemBridgeService, repository)
                 runCatching {
-                    // 推送只由「别的设备刚改完云端」触发，它本身就是内容「刚刚」到达的证据，
-                    // 因此不走陈旧判定。判据只属于补查路径：那里本机刚经历了一段看不到
-                    // 云端的窗口。套在推送上会把「重新复制一条以前复制过的内容」当成积压：
-                    // 那条内容的 createTime 同样很老，但它确实是用户此刻主动复制的。
-                    //
-                    // 抑制只认本机剪贴板登记值：剪贴板里已经是它，写入才是多余的。
-                    if (remoteContentAlreadyPresent(payload, previousHash, transferService, useLocalClipboardForText = true)) {
-                        null
-                    } else {
-                        transferService.applyRemoteAutomatically(payload, settings) { text, hash ->
-                            writeClipboardText(callback, text, hash)
-                        }
-                    }
+                    // 与补查共用同一套判定。有没有时间判据只看 payload 带没带时间，
+                    // 不看这条内容是从推送上来的还是查出来的。
+                    applyRemotePayload(
+                        payload = payload,
+                        settings = settings,
+                        transferService = transferService,
+                        previousHash = previousHash,
+                        useLocalClipboardForText = true,
+                        fromRealtimePush = true,
+                    ) { text, hash -> writeClipboardText(callback, text, hash) }
                 }.onSuccess { newHash ->
                     remoteTransferFailure = null
                     if (newHash != null) {
@@ -554,33 +560,14 @@ class SystemBridgeService : Service() {
         val transferService = ClipboardTransferService(this, repository)
         runCatching {
             val payload = transferService.getRemoteClipboard()
-            val sourceHash = transferService.remoteHash(payload)
-            // 顺序不能颠倒：先看本机是不是已经有这份内容（有则什么都不做，省掉一次内容时间
-            // 查询，也避免把刚同步过的正常内容反复归档），再判它是不是窗口里的积压。
-            val alreadyPresent = remoteContentAlreadyPresent(
-                payload,
-                previousHash,
-                transferService,
+            applyRemotePayload(
+                payload = payload,
+                settings = settings,
+                transferService = transferService,
+                previousHash = previousHash,
                 useLocalClipboardForText = !needsBaselineSuppression(settings),
-            )
-            val staleAge = if (alreadyPresent) null else staleRemoteContentAgeMillis(transferService, payload)
-            when {
-                alreadyPresent -> null
-                staleAge != null -> {
-                    // 归档进本地历史后跳过写入，并把同步点记成它，避免同一份旧内容被反复判定。
-                    archiveStaleRemoteText(transferService, payload)
-                    repository.saveLastAutomaticRemoteHash(sourceHash)
-                    recordAutomaticSyncEvent(
-                        AutomaticSyncEventKind.STALE_WRITE_SKIPPED,
-                        contentType = payload.type,
-                        ageMillis = staleAge,
-                    )
-                    null
-                }
-                else -> transferService.applyRemoteAutomatically(payload, settings) { text, hash ->
-                    writeClipboardText(callback, text, hash)
-                }
-            }
+                fromRealtimePush = false,
+            ) { text, hash -> writeClipboardText(callback, text, hash) }
         }.onSuccess { newHash ->
             remoteTransferFailure = null
             if (newHash != null) {
@@ -669,33 +656,19 @@ class SystemBridgeService : Service() {
     }
 
     /**
-     * 主判据：远端内容是不是「本机看不到云端的那段时间里冒出来的」旧内容。
+     * 降级路径：服务端没有给出 `syncedAt` 时，用历史记录接口的 `createTime` 与「现在」比较。
      *
-     * 返回内容早于判定时刻的毫秒数，非 null 即表示应当跳过写入。判定只用服务端给出的
-     * `createTime` 与服务器时钟偏移，不依赖任何存活条件的上报，所以循环因为什么原因
-     * 停摆都不影响它：停机不需要谁来枚举，也不需要基线先建好。
+     * `createTime` 是内容首次到达云端的时刻，同 hash 重复提交不刷新，因此它只能回答
+     * 「多久以前第一次出现」。够用，但无法像 `syncedAt` 那样直接对上「恢复同步之前还是之后」，
+     * 所以只在老服务端（`v3.3.1` 及更早）与没有落这个字段的 WebDAV/S3 部署上生效。
      *
-     * **只用于「补查」这条路径**（连接建立后的那次 HTTP 查询、以及实时通道不通时的
-     * 定时补查），不要用在实时推送路径上。补查时本机刚刚经历了一段看不到云端的窗口，
-     * 此时云端躺着的内容都可能是窗口里积压的；而推送只会在别的设备刚改完云端时触发，
-     * 它本身就是「刚刚」的证据。把判据套到推送上会把「重新复制一条以前复制过的内容」
-     * 也误判成积压。那条内容的 createTime 同样很老，但它是用户此刻主动复制的。
-     *
-     * 任一环节拿不到数据（非文本内容、服务端不支持历史接口、时钟不可信）都返回
-     * null，此时由基线逻辑降级兜底。
-     *
-     * 调用方必须**先**排除「本机已经是这份内容」的情况：[remoteContentAlreadyPresent]。
-     * 历史版本在这里用 `previousHash` 做豁免（「同一个哈希处理过就别再判」），但那个字段被
-     * 上传、下载、归档三条路径共用，归档一条旧内容后它照样会被改成那条内容，豁免于是变成漏洞：同一条
-     * 内容在被归档后的下一次补查里会绕过陈旧判定，直接写进剪贴板。
+     * 返回内容早于判定时刻的毫秒数（已扣除宽限），非 null 表示应当跳过写入。
+     * 拿不到可用数据时返回 null，交给基线逻辑兜底。
      */
     private fun staleRemoteContentAgeMillis(
         transferService: ClipboardTransferService,
         payload: ClipboardPayload,
     ): Long? {
-        // 只有文本有可归档的本地历史；其他类型保持原有下载流程。
-        if (payload.type != ClipboardType.TEXT) return null
-        if (repository.loadAdvancedSyncSettings().receivePausedRemoteChanges) return null
         val offset = remoteClockOffsetMillis ?: return null
         val contentTimestamp = transferService.getRemoteContentTimestamp(payload) ?: return null
         return StaleRemoteContentPolicy.staleAgeMillis(
@@ -704,6 +677,72 @@ class SystemBridgeService : Service() {
             contentCreatedAtMillis = contentTimestamp,
             graceMillis = STALE_CONTENT_GRACE_MILLIS,
         )
+    }
+
+    /**
+     * 把一条远端内容落到本机：先排除「本机已经是这份内容」，再判它是不是暂停期间提交的，
+     * 两者都不成立才写入。推送与补查共用这一条路径。
+     *
+     * @return 写入成功时的新哈希；跳过或没有可写的类型时为 null
+     */
+    private fun applyRemotePayload(
+        payload: ClipboardPayload,
+        settings: AdvancedSyncSettings,
+        transferService: ClipboardTransferService,
+        previousHash: String?,
+        useLocalClipboardForText: Boolean,
+        fromRealtimePush: Boolean,
+        writeText: (String, String) -> Unit,
+    ): String? {
+        // 抑制写入只认本机剪贴板登记值：剪贴板里已经是它，写入才是多余的。
+        if (remoteContentAlreadyPresent(payload, previousHash, transferService, useLocalClipboardForText)) {
+            return null
+        }
+        val pausedAge = pausedWindowAgeMillis(payload, settings, transferService, fromRealtimePush)
+        if (pausedAge != null) {
+            // 归档进本地历史后跳过写入，并把同步点记成它，避免同一份旧内容被反复判定。
+            archiveStaleRemoteText(transferService, payload)
+            repository.saveLastAutomaticRemoteHash(transferService.remoteHash(payload))
+            recordAutomaticSyncEvent(
+                AutomaticSyncEventKind.STALE_WRITE_SKIPPED,
+                contentType = payload.type,
+                ageMillis = pausedAge,
+            )
+            return null
+        }
+        return transferService.applyRemoteAutomatically(payload, settings, writeText)
+    }
+
+    /**
+     * 这条内容是不是暂停期间提交的。返回非 null 表示应当跳过，值用于诊断记录。
+     *
+     * 只有文本有可归档的本地历史，其他类型保持原样落盘。
+     * `syncedAt` 可用时按暂停窗口判定，推送与补查一致。
+     * 缺失时只有补查退回 `createTime` 比较：`createTime` 对「重新提交一条以前提交过的
+     * 内容」与积压内容区分不了，拿它去判实时推送会误杀用户此刻主动复制的内容。
+     * 两条都不可用时交给基线逻辑，见 [needsBaselineSuppression]。
+     */
+    private fun pausedWindowAgeMillis(
+        payload: ClipboardPayload,
+        settings: AdvancedSyncSettings,
+        transferService: ClipboardTransferService,
+        fromRealtimePush: Boolean,
+    ): Long? {
+        if (payload.type != ClipboardType.TEXT) return null
+        if (settings.receivePausedRemoteChanges) return null
+        return when (
+            val verdict = PauseWindowPolicy.judge(
+                syncedAtMillis = payload.syncedAtMillis,
+                windowStartMillis = pauseWindowStartMillis,
+                serverClockOffsetMillis = remoteClockOffsetMillis,
+                toleranceMillis = PAUSE_WINDOW_TOLERANCE_MILLIS,
+            )
+        ) {
+            is PauseWindowPolicy.Verdict.Skip -> verdict.ageMillis
+            PauseWindowPolicy.Verdict.Fresh -> null
+            PauseWindowPolicy.Verdict.Unavailable ->
+                if (fromRealtimePush) null else staleRemoteContentAgeMillis(transferService, payload)
+        }
     }
 
     /** 时间判据是否可用；可用时不再需要基线，直接按内容时间判定。 */
@@ -960,6 +999,13 @@ class SystemBridgeService : Service() {
          * 积压的旧内容，归档进历史而不写剪贴板。容忍时钟采样误差与短期抖动。
          */
         const val STALE_CONTENT_GRACE_MILLIS = 5_000L
+
+        /**
+         * 暂停窗口判定的容差。窗口起点取「恢复同步的那一刻」，补查延迟不再参与比较，
+         * 只剩时钟采样误差（实测 65~170 毫秒）与循环启动抖动，因此比
+         * [STALE_CONTENT_GRACE_MILLIS] 紧得多。
+         */
+        const val PAUSE_WINDOW_TOLERANCE_MILLIS = 1_000L
 
         /** 服务器时钟偏移超过这个量级就认为不可信（单位错误、系统时钟错乱），整体降级到基线。 */
         const val MAX_TRUSTED_CLOCK_OFFSET_MILLIS = 24 * 60 * 60 * 1_000L

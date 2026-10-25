@@ -14,7 +14,7 @@
 - 正式签名身份必须保持不变，老版本用户才能原地覆盖安装。私钥、口令与其他签名材料只保存在仓库外或 GitHub Actions Secrets 中。证书指纹见本地 `AGENTS.md`。
 - 上游已实现「最后一次同步时间」：issue #427 于 2026-10-09 由提交 `d9f60d2e` 关闭（`feat: 为远端剪贴板添加带时区偏移的同步时间`），`ProfileDto` 新增 `syncedAt`，随 `v3.3.2` 与 `v3.3.3`（2026-10-18）发布。官方服务器在保存当前剪贴板时用服务器时间写入，并忽略客户端 PUT 提供的值，WebDAV 与 S3 由客户端自行设置。字段写进 `SyncClipboard.json`，`GET /SyncClipboard.json` 与 SignalR 推送都会带。
 - `syncedAt` 语义是「这份远端内容最近一次提交的时刻」，同 hash 重复推送会刷新，与历史接口的 `createTime`（首见时刻，不随重复上传变化）不同。官方文档明确要求不要用它判断并发写入顺序。
-- 自建服务器自 2026-10-18 起已运行带该字段的镜像，2026-10-25 核实数据文件里确有 `SyncedAt`。客户端尚未接入，判定陈旧仍走 `GET /api/history/{Type}-{Hash}` 的 `createTime` 探测。
+- 自建服务器自 2026-10-18 起已运行带该字段的镜像，2026-10-25 核实数据文件里确有 `SyncedAt`。客户端已接入，判定主路径不再请求历史接口。
 
 ## 助手私有目录与交接
 
@@ -75,19 +75,23 @@
 
 设置项 `receive_paused_remote_changes=false` 表示「不接收暂停期间的云端更新」。
 
-- **主判据是内容时间**（`StaleRemoteContentPolicy`）：`createTime` 早于本次判定时刻超 5 秒（`STALE_CONTENT_GRACE_MILLIS`）就归档进文本历史、不写剪贴板。**只在补查路径生效**（SignalR 连上后那次查询、实时通道不通时的定时补查）。**绝不能套在实时推送上**，推送只由「别的设备刚 PUT」触发，本身就是「刚刚」的证据。停机只需表现为「内容时间很老」，**不需枚举停摆原因**。
-- **降级路径是哈希基线**（`RemoteSyncResumePolicy`），仅拿不到内容时间时启用（老服务端、纯 WebDAV、时钟偏移超限）。`needsBaselineSuppression` 等于选项开着且 `remoteClockOffsetMillis == null`。
+- **主判据是暂停窗口**（`PauseWindowPolicy`）：`syncedAt` 早于「本轮恢复同步的时刻」超 1 秒（`PAUSE_WINDOW_TOLERANCE_MILLIS`）就归档进文本历史、不写剪贴板。恢复时刻取自动同步循环从停止态重启的瞬间，**不需枚举停摆原因**。判据只比两个时刻，补查延迟不再参与比较，所以容差比旧的 5 秒紧得多。
+- **推送与补查用同一套判定**。旧实现排除推送，是因为 `createTime` 在同 hash 重复提交时不刷新，重新提交旧内容与积压内容无法区分。`syncedAt` 每次提交都刷新，这个理由不再成立。
+- **降级判据是 `createTime`**（`StaleRemoteContentPolicy`）：服务端没有 `syncedAt` 时，补查退回历史接口的 `createTime` 与「现在」比较，宽限 5 秒（`STALE_CONTENT_GRACE_MILLIS`）。这条口径仍分不清重新提交与积压，所以**只用于补查，推送不判**。
+- **最后的降级是哈希基线**（`RemoteSyncResumePolicy`），两条时间判据都拿不到时启用（老服务端、纯 WebDAV、时钟偏移超限）。`needsBaselineSuppression` 等于选项开着且 `remoteClockOffsetMillis == null`。
 - 历史教训（0.1.8 到 0.1.9 反复出问题）：根因是判定依赖「枚举停摆原因」。`shouldRunRemoteSync()` 每条存活条件（`enabled`、`downloadsEnabled`、`deviceUnlocked`、`networkAvailable`、`systemBridge`）丢失都要上报 `onAutomaticConditionLost()`，`systemBridge` 是历史漏报的那条。
 - `remoteClockOffsetMillis` 曾只在 `establishRemoteBaseline()` 里赋值，于是「不建基线 → 偏移 null → 时间判据全废」。现由 `calibrateServerClock()` 在循环启动时独立校准，与基线彻底解耦。
-- 该选项开启时，「锁屏期间在电脑上复制 → 解锁手机粘贴」这条路径会被拦。这是选项语义本身而非缺陷，正常流程是先解锁再复制，通道就绪后复制走推送路径不判陈旧。真机时序：`extension_connected` → `realtime_connected` 199~313 ms，再 → 补查判定完成 2.3~5.3 s。误拦需要「解锁后 0.2 秒内复制完」且「补查慢到 5.5 秒」同时成立，手动不可能，**5 秒宽限够用，不必改**。
+- 该选项开启时，「锁屏期间在电脑上复制 → 解锁手机粘贴」这条路径会被拦。这是选项语义本身而非缺陷。接 `syncedAt` 之后，误判窗口只剩「解锁前 1 秒内复制」这一种可能，比旧的 5 秒宽限口径更窄。
+- 恢复时刻只在循环从停止态重启时记录，设置变更触发的重启不重置窗口，否则短暂重启会把刚推来的内容误判成积压。
 
 ## 内容时间的服务端语义
 
 - **hash 只是内容的函数**：文本是 `SHA-256(trim 后的 UTF-8)`。A → B → C → 再复制 A，两个 A 的 hash 逐字节相同，服务端命中已有记录只 `version++`。图片与文件是 `sha256("文件名|内容SHA256")`。
-- 判据只用 **`createTime`**（首次到达云端时刻，**永不刷新**，服务端三条写路径都不碰它）。`lastModified` 不可用，PATCH 标星与置顶也会刷它，`UpdateEntityFields` 把客户端送来的时间原样写回。`version` 也不是上传次数。
-- 本仓上传走 legacy `PUT /SyncClipboard.json`，payload 无时间字段，于是「重新复制旧内容」与「积压内容」在服务端**完全同形**，只能靠调用时机区分。
+- `createTime` 是**首次**到达云端时刻，**永不刷新**，服务端三条写路径都不碰它。`lastModified` 不可用，PATCH 标星与置顶也会刷它，`UpdateEntityFields` 把客户端送来的时间原样写回。`version` 也不是上传次数。
+- `syncedAt` 相反，**每次提交都刷新**，`v3.3.2` 起随 `SyncClipboard.json` 与 SignalR 推送下发，语义是「最近一次提交时刻」。判断「恢复同步之前还是之后」用它，判断「这份内容多久以前第一次出现」才用 `createTime`。
+- 本仓上传走 legacy `PUT /SyncClipboard.json`，不上送 `syncedAt`。官方服务器收到后会用服务器时间补上，客户端送的值也会被忽略，因此不需要我们写。WebDAV 与 S3 没有服务端补值，只有上游新版客户端上传时才带。
 - 带时间的接口是 `GET /api/time`、`GET /api/history/{Type}-{Hash}`、`POST /api/history/query`。`{profileId}` 是 **`Type-Hash` 单段**，写成 `Text/<hash>` 会落到 PATCH 路由返 405。**`/api/current` 不存在**（实测 404，别写进代码）。老部署与纯 WebDAV 上 history 系列 404，探测式处理，拿不到就降级。
-- 上游 issue #427 落地后的接入点是 `ClipboardPayload` 加字段解析、`getRemoteContentTimestamp()` 加优先链。
+- 上游 issue #427 的接入点：`ClipboardPayload.syncedAtMillis` 由 `SyncTimestampParser.parseSyncedAt()` 提取，判定在 `PauseWindowPolicy`，`getRemoteContentTimestamp()` 降为老服务端的兜底。
 
 ## 双通道
 

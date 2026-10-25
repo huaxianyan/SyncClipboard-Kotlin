@@ -7,8 +7,9 @@ package com.neko7ina.syncclipboard.sync
  * 这段窗口内云端可能产生了本机尚未见过的新内容。恢复时若直接接收，
  * 这份旧内容会被当成新内容写进剪贴板。
  *
- * 这只是**降级路径**：只要服务端能提供内容的 `createTime`（见
- * [StaleRemoteContentPolicy]），就改由内容时间去判定，不再依赖这里的标志，
+ * 这只是**降级路径**：只要服务端能给出内容时间（内容自带 `syncedAt` 时走
+ * [PauseWindowPolicy]，否则补查时用 `createTime`，见 [StaleRemoteContentPolicy]），
+ * 就改由内容时间去判定，不再依赖这里的标志，
  * 也就不再依赖 [onAutomaticConditionLost] 是否覆盖了循环存活条件的**全部**来源。
  * 漏报来源正是这条路径历史上反复漏判的根因。只有拿不到内容时间时才回落到基线。
  */

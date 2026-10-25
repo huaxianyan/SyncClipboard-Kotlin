@@ -85,12 +85,12 @@ class StaleRemoteContentPolicyTest {
     }
 
     /**
-     * 记录一个必须靠「只在补查路径使用判据」来规避的固有局限。
+     * 记录 `createTime` 口径的固有局限，这也是它只做降级路径的原因。
      *
-     * 服务端只在记录首次创建时写 `createTime`：`AddProfile` 命中已有 hash 时只刷
-     * `LastAccessed`/`LastModified`/`Version`，`Update`（PATCH）与 `UpdateEntityFields`
-     * 也都不碰它。所以「重新复制一条以前复制过的内容」在时间上看起来和一条积压内容
-     * 完全一样，判据本身区分不了，只能靠调用时机区分（推送 = 刚刚，补查 = 可能有积压）。
+     * 服务端只在记录首次创建时写 `createTime`：命中已有 hash 时只刷
+     * `LastAccessed`/`LastModified`/`Version`。所以「重新提交一条以前提交过的内容」在时间上
+     * 看起来和一条积压内容完全一样，这个判据区分不了。`syncedAt` 会在每次提交时刷新，
+     * 能区分；拿不到 `syncedAt` 时只能靠调用时机区分（推送 = 刚刚，补查 = 可能有积压）。
      */
     @Test
     fun `重新复制一条旧内容在时间上与积压内容无法区分`() {

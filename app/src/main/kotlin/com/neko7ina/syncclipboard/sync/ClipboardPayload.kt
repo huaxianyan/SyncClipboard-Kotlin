@@ -2,6 +2,7 @@ package com.neko7ina.syncclipboard.sync
 
 import org.json.JSONObject
 import com.neko7ina.syncclipboard.net.LocalNetworkPermissionException
+import com.neko7ina.syncclipboard.net.SyncTimestampParser
 import java.io.IOException
 import javax.net.ssl.SSLException
 
@@ -29,6 +30,14 @@ data class ClipboardPayload(
     val hasData: Boolean,
     val dataName: String? = null,
     val size: Long? = null,
+    /**
+     * 服务端记录的内容提交时刻（epoch 毫秒，服务器时钟）。
+     *
+     * 官方服务端自 `v3.3.2` 起在 `SyncClipboard.json` 与 SignalR 推送里带 `syncedAt`，
+     * 语义是「这份内容最近一次提交的时间」，同 hash 重复提交会刷新。老服务端、以及
+     * 没有落这个字段的 WebDAV/S3 部署为 null。
+     */
+    val syncedAtMillis: Long? = null,
 ) {
     fun toJson(): String = JSONObject().apply {
         put("type", type.wireName)
@@ -49,6 +58,9 @@ data class ClipboardPayload(
                 hasData = json.optBoolean("hasData", false),
                 dataName = json.optString("dataName").takeIf { it.isNotBlank() },
                 size = json.optLong("size", -1L).takeIf { it >= 0L },
+                // 用独立的正则提取而不是 org.json：后者在 JVM 单测里是空壳，
+                // 会把这条判定路径挡在单元测试之外。
+                syncedAtMillis = SyncTimestampParser.parseSyncedAt(value),
             )
         }
     }

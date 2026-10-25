@@ -72,6 +72,47 @@ class SyncTimestampParserTest {
         assertParsed(1789557966690L, body)
     }
 
+    /**
+     * `GET /SyncClipboard.json` 自 `v3.3.2` 起带 `syncedAt`，取自自建服务器上的真实值。
+     */
+    @Test
+    fun `从剪贴板 JSON 提取 syncedAt`() {
+        val body = """{"type":"Text","hash":"ABC","text":"hello","hasData":false,""" +
+            """"syncedAt":"2026-10-25T09:21:42.3251447+00:00"}"""
+        assertEquals(1792920102325L, SyncTimestampParser.parseSyncedAt(body) ?: -1L)
+    }
+
+    @Test
+    fun `syncedAt 支持大写字段名与数字形式`() {
+        assertEquals(
+            1792920102325L,
+            SyncTimestampParser.parseSyncedAt("""{"SyncedAt":"2026-10-25T09:21:42.3251447+00:00"}""") ?: -1L,
+        )
+        assertEquals(
+            1792920102325L,
+            SyncTimestampParser.parseSyncedAt("""{"syncedAt":1792920102325}""") ?: -1L,
+        )
+    }
+
+    /**
+     * 正文里出现的伪字段在 JSON 中是转义过的（`\"syncedAt\":`），`:` 后面紧跟反斜杠，
+     * 匹配不到要求纯引号的模式。
+     */
+    @Test
+    fun `正文里的伪 syncedAt 不会被当成内容时间`() {
+        val body = """{"type":"Text","text":"{\"syncedAt\":\"2000-01-01T00:00:00Z\"}",""" +
+            """"hasData":false}"""
+        assertNull(SyncTimestampParser.parseSyncedAt(body))
+    }
+
+    @Test
+    fun `没有 syncedAt 时返回 null`() {
+        assertNull(SyncTimestampParser.parseSyncedAt(null))
+        assertNull(SyncTimestampParser.parseSyncedAt(""))
+        assertNull(SyncTimestampParser.parseSyncedAt("""{"type":"Text","hash":"X"}"""))
+        assertNull(SyncTimestampParser.parseSyncedAt("""{"syncedAt":"not a time"}"""))
+    }
+
     @Test
     fun `无法识别的输入返回 null`() {
         assertNull(SyncTimestampParser.parse(null))

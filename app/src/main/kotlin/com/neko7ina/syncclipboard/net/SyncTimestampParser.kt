@@ -28,12 +28,35 @@ internal object SyncTimestampParser {
         "Timestamp",
     )
 
-    private val STRING_PATTERNS = FIELDS.map { field ->
-        Regex("\"$field\"\\s*:\\s*\"([^\"]+)\"")
-    }
+    private val STRING_PATTERNS = FIELDS.map(::stringPattern)
+    private val NUMBER_PATTERNS = FIELDS.map(::numberPattern)
 
-    private val NUMBER_PATTERNS = FIELDS.map { field ->
-        Regex("\"$field\"\\s*:\\s*(\\d{10,})")
+    /** 远端内容自身的提交时刻。它与历史记录的 `createTime` 不是同一件事，单独提取。 */
+    private val SYNCED_AT_FIELDS = listOf("syncedAt", "SyncedAt")
+
+    private fun stringPattern(field: String) = Regex("\"$field\"\\s*:\\s*\"([^\"]+)\"")
+
+    private fun numberPattern(field: String) = Regex("\"$field\"\\s*:\\s*(\\d{10,})")
+
+    /**
+     * 从剪贴板 JSON 里提 `syncedAt`（官方服务端自 `v3.3.2` 起在 `SyncClipboard.json`
+     * 与 SignalR 推送里提供）。字段缺失、格式无法识别时返回 null。
+     *
+     * 与 [parse] 一样用正则而不是 `org.json`：正文里出现的转义伪字段（`\"syncedAt\":`）
+     * 在 `:` 后面紧跟反斜杠，匹配不到要求纯引号的模式。
+     */
+    fun parseSyncedAt(raw: String?): Long? {
+        val text = raw?.trim() ?: return null
+        if (text.isEmpty()) return null
+        SYNCED_AT_FIELDS.forEach { field ->
+            stringPattern(field).find(text)?.let { match ->
+                parseValue(match.groupValues[1])?.let { return it }
+            }
+            numberPattern(field).find(text)?.let { match ->
+                match.groupValues[1].toLongOrNull()?.let { return it }
+            }
+        }
+        return null
     }
 
     /**

@@ -75,17 +75,18 @@ class SyncClipboardClient(
     }
 
     /**
-     * 查询远端内容在服务器上的生成时间（epoch millis）。
+     * 查询远端内容在服务器上首次出现的时刻（epoch millis）。
      *
-     * 官方服务端的当前剪贴板接口（`/SyncClipboard.json`）与 SignalR 推送都不携带时间，
-     * 只有历史记录接口有：`GET /api/history/{Type}-{Hash}` 返回的 `createTime`。
+     * 这是**降级路径**：官方服务端自 `v3.3.2` 起在 `SyncClipboard.json` 与 SignalR 推送里
+     * 直接带了 `syncedAt`（最近一次提交时刻），优先用那个（见 `PauseWindowPolicy`），
+     * 不必再发一次请求。只有老服务端才回落到这里，取历史记录接口
+     * `GET /api/history/{Type}-{Hash}` 的 `createTime`。
      *
      * 语义要点：`createTime` 是该 hash **首次**上传到服务器的时刻，同 hash 重复上传只会
      * 递增 `version` 并刷新 `lastModified` / `lastAccessed`，**不会**改 `createTime`。
-     * 所以判断「这份内容是不是这段时间才出现的」要用 `createTime`，不能用 `lastModified`。
      *
      * 老版本服务端（无 history 接口）、记录已被清理（默认保留 7 天 / 最多 1000 条）、
-     * 或响应无法解析时返回 null，调用方据此保持原有写入行为。
+     * 或响应无法解析时返回 null，调用方据此交给基线逻辑兜底。
      */
     fun getRemoteContentTimestamp(payload: ClipboardPayload): Long? {
         val hash = payload.hash?.takeIf { it.isNotBlank() } ?: return null
