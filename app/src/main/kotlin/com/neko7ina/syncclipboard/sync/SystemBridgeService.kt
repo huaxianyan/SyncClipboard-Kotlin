@@ -764,16 +764,24 @@ class SystemBridgeService : Service() {
      * 校准服务器时钟，失败时短暂重试。
      *
      * 只在「不接收暂停期间的云端更新」开启时重试：开关关着时偏移不参与任何判定，
-     * 不值得为它多等。重试用尽后照旧返回 null，判定退到基线。
+     * 不值得为它多等。重试与最终失败都会打日志，便于在真机上区分「首次就成功」与
+     * 「重试后才成功」。重试用尽后照旧返回 null，判定退到基线。
      */
     private suspend fun calibrateServerClockWithRetry(): Long? {
         val settings = repository.loadAdvancedSyncSettings()
-        val retryDelays = if (settings.receivePausedRemoteChanges) {
-            LongArray(0)
-        } else {
-            CALIBRATION_RETRY_DELAYS_MILLIS
+        if (settings.receivePausedRemoteChanges) return calibrateServerClock()
+        val offset = retryUntilCalibrated(
+            retryDelaysMillis = CALIBRATION_RETRY_DELAYS_MILLIS,
+            attempt = ::calibrateServerClock,
+            shouldContinue = { shouldRunRemoteSync() },
+            onRetry = { delayMillis ->
+                Log.i(TAG, "Server clock calibration failed, retrying in $delayMillis ms")
+            },
+        )
+        if (offset == null) {
+            Log.w(TAG, "Server clock offset unavailable, content time checks disabled")
         }
-        return retryUntilCalibrated(retryDelays, ::calibrateServerClock) { shouldRunRemoteSync() }
+        return offset
     }
 
     /**

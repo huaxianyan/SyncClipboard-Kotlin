@@ -65,6 +65,34 @@ class CalibrationRetryTest {
     }
 
     @Test
+    fun `每次重试前回调一次，首次成功时不回调`() = runBlocking {
+        val retriedAfter = mutableListOf<Long>()
+        var attempts = 0
+        val offset = retryUntilCalibrated(
+            retryDelaysMillis = longArrayOf(1L, 2L),
+            attempt = {
+                attempts++
+                if (attempts < 3) null else 5L
+            },
+            onRetry = { retriedAfter += it },
+        )
+        assertEquals(5L, offset)
+        assertEquals(listOf(1L, 2L), retriedAfter)
+
+        retriedAfter.clear()
+        attempts = 0
+        retryUntilCalibrated(
+            retryDelaysMillis = longArrayOf(1L, 2L),
+            attempt = {
+                attempts++
+                9L
+            },
+            onRetry = { retriedAfter += it },
+        )
+        assertEquals(emptyList<Long>(), retriedAfter)
+    }
+
+    @Test
     fun `条件不再成立时立即停止重试`() = runBlocking {
         var attempts = 0
         var active = true

@@ -16,15 +16,18 @@ import kotlinx.coroutines.delay
  * @param retryDelaysMillis 每次重试前等待的毫秒数，数组长度就是最多重试次数
  * @param attempt 一次校准，成功返回偏移，失败返回 null
  * @param shouldContinue 每次重试前询问是否还该继续，例如循环已经被取消时
+ * @param onRetry 每次重试前回调，用于记一条日志；首次就成功时不会触发
  */
 internal suspend fun retryUntilCalibrated(
     retryDelaysMillis: LongArray,
     attempt: suspend () -> Long?,
     shouldContinue: () -> Boolean = { true },
+    onRetry: (Long) -> Unit = {},
 ): Long? {
     attempt()?.let { return it }
     for (retryDelayMillis in retryDelaysMillis) {
         if (!shouldContinue()) return null
+        onRetry(retryDelayMillis)
         delay(retryDelayMillis)
         attempt()?.let { return it }
     }
