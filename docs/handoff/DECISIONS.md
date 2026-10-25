@@ -81,6 +81,7 @@
 - **最后的降级是哈希基线**（`RemoteSyncResumePolicy`），两条时间判据都拿不到时启用（老服务端、纯 WebDAV、时钟偏移超限）。`needsBaselineSuppression` 等于选项开着且 `remoteClockOffsetMillis == null`。
 - 历史教训（0.1.8 到 0.1.9 反复出问题）：根因是判定依赖「枚举停摆原因」。`shouldRunRemoteSync()` 每条存活条件（`enabled`、`downloadsEnabled`、`deviceUnlocked`、`networkAvailable`、`systemBridge`）丢失都要上报 `onAutomaticConditionLost()`，`systemBridge` 是历史漏报的那条。
 - `remoteClockOffsetMillis` 曾只在 `establishRemoteBaseline()` 里赋值，于是「不建基线 → 偏移 null → 时间判据全废」。现由 `calibrateServerClock()` 在循环启动时独立校准，与基线彻底解耦。
+- 循环启动时的校准会在失败后重试两次（300、700 毫秒，`CALIBRATION_RETRY_DELAYS_MILLIS`），且仅在开启该选项时重试。解锁瞬间系统已报有网但请求可能仍失败，一次失败就会让判定退到基线并多一条 `baseline_established`，看起来像判据没生效。重试用尽后照旧降级。
 - 该选项开启时，「锁屏期间在电脑上复制 → 解锁手机粘贴」这条路径会被拦。这是选项语义本身而非缺陷。接 `syncedAt` 之后，误判窗口只剩「解锁前 1 秒内复制」这一种可能，比旧的 5 秒宽限口径更窄。
 - 恢复时刻只在循环从停止态重启时记录，设置变更触发的重启不重置窗口，否则短暂重启会把刚推来的内容误判成积压。
 

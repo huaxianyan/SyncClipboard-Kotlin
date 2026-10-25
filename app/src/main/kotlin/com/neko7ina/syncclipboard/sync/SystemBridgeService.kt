@@ -417,7 +417,8 @@ class SystemBridgeService : Service() {
         var lastFallbackPollAt = 0L
         // 独立校准服务器时钟。时间判据不能挂在基线上：基线一旦漏判，
         // 判据会跟着一起失效，两道防线就变成串联而不是并联。
-        remoteClockOffsetMillis = calibrateServerClock()
+        // 刚恢复的瞬间一次失败就会退到基线，这里给瞬时失败留重试余地。
+        remoteClockOffsetMillis = calibrateServerClockWithRetry()
         while (currentCoroutineContext().isActive && shouldRunRemoteSync()) {
             val server = repository.loadServer() ?: return
             val client = SignalRSyncClient(server, this, ::handleRemoteProfile)
@@ -760,6 +761,22 @@ class SystemBridgeService : Service() {
         !settings.receivePausedRemoteChanges && remoteClockOffsetMillis == null
 
     /**
+     * 校准服务器时钟，失败时短暂重试。
+     *
+     * 只在「不接收暂停期间的云端更新」开启时重试：开关关着时偏移不参与任何判定，
+     * 不值得为它多等。重试用尽后照旧返回 null，判定退到基线。
+     */
+    private suspend fun calibrateServerClockWithRetry(): Long? {
+        val settings = repository.loadAdvancedSyncSettings()
+        val retryDelays = if (settings.receivePausedRemoteChanges) {
+            LongArray(0)
+        } else {
+            CALIBRATION_RETRY_DELAYS_MILLIS
+        }
+        return retryUntilCalibrated(retryDelays, ::calibrateServerClock) { shouldRunRemoteSync() }
+    }
+
+    /**
      * 校准服务器时钟。拿不到、或偏移大到不像话（单位错误、系统时钟错乱）时返回 null，
      * 让所有时间判定整体降级，而不是拿一个坏值去误杀正常内容。
      */
@@ -1006,6 +1023,12 @@ class SystemBridgeService : Service() {
          * [STALE_CONTENT_GRACE_MILLIS] 紧得多。
          */
         const val PAUSE_WINDOW_TOLERANCE_MILLIS = 1_000L
+
+        /**
+         * 时钟校准的重试间隔。解锁瞬间的失败多半是网络还没就绪，两次短间隔足够跨过这个窗口，
+         * 仍不成功就按原有逻辑降级到基线。
+         */
+        val CALIBRATION_RETRY_DELAYS_MILLIS = longArrayOf(300L, 700L)
 
         /** 服务器时钟偏移超过这个量级就认为不可信（单位错误、系统时钟错乱），整体降级到基线。 */
         const val MAX_TRUSTED_CLOCK_OFFSET_MILLIS = 24 * 60 * 60 * 1_000L
