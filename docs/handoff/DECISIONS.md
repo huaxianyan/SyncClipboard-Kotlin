@@ -9,7 +9,7 @@
 - 主体仓库 `https://github.com/huaxianyan/SyncClipboard-Kotlin`。
 - 系统扩展仓库 `https://github.com/huaxianyan/SyncClipboard-Kotlin-Extension`。扩展于 2026-10-13 从主体拆出，两个仓库各有独立的版本定义、标签与 Release，互不影响。
 - 正式包名 `com.neko7ina.syncclipboard`（主体）、`com.neko7ina.syncclipboard.extension`（扩展）。
-- 当前正式基线：主体 `v0.3.0`（versionCode 13），扩展 `v0.3.1`（versionCode 14）。target SDK 37（Android 17），min SDK 29（Android 10）。
+- 当前正式基线：主体 `v0.3.1`（versionCode 14），扩展 `v0.3.1`（versionCode 14）。target SDK 37（Android 17），min SDK 29（Android 10）。
 - 项目派生自上游 `Jeric-X/SyncClipboard`（MIT），启动图标亦改自上游，署名与许可全文在 `LICENSES/`。
 - 正式签名身份必须保持不变，老版本用户才能原地覆盖安装。私钥、口令与其他签名材料只保存在仓库外或 GitHub Actions Secrets 中。证书指纹见本地 `AGENTS.md`。
 - 上游已实现「最后一次同步时间」：issue #427 于 2026-10-09 由提交 `d9f60d2e` 关闭（`feat: 为远端剪贴板添加带时区偏移的同步时间`），`ProfileDto` 新增 `syncedAt`，随 `v3.3.2` 与 `v3.3.3`（2026-10-18）发布。官方服务器在保存当前剪贴板时用服务器时间写入，并忽略客户端 PUT 提供的值，WebDAV 与 S3 由客户端自行设置。字段写进 `SyncClipboard.json`，`GET /SyncClipboard.json` 与 SignalR 推送都会带。
