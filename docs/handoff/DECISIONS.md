@@ -12,7 +12,9 @@
 - 当前正式基线：主体 `v0.3.0`（versionCode 13），扩展 `v0.3.1`（versionCode 14）。target SDK 37（Android 17），min SDK 29（Android 10）。
 - 项目派生自上游 `Jeric-X/SyncClipboard`（MIT），启动图标亦改自上游，署名与许可全文在 `LICENSES/`。
 - 正式签名身份必须保持不变，老版本用户才能原地覆盖安装。私钥、口令与其他签名材料只保存在仓库外或 GitHub Actions Secrets 中。证书指纹见本地 `AGENTS.md`。
-- 上游接口 issue #427（「最后一次同步时间」）官方答「暂无，之后可以加一个」，形态未定。**等官方落地再补，期间不动客户端。**
+- 上游已实现「最后一次同步时间」：issue #427 于 2026-10-09 由提交 `d9f60d2e` 关闭（`feat: 为远端剪贴板添加带时区偏移的同步时间`），`ProfileDto` 新增 `syncedAt`，随 `v3.3.2` 与 `v3.3.3`（2026-10-18）发布。官方服务器在保存当前剪贴板时用服务器时间写入，并忽略客户端 PUT 提供的值，WebDAV 与 S3 由客户端自行设置。字段写进 `SyncClipboard.json`，`GET /SyncClipboard.json` 与 SignalR 推送都会带。
+- `syncedAt` 语义是「这份远端内容最近一次提交的时刻」，同 hash 重复推送会刷新，与历史接口的 `createTime`（首见时刻，不随重复上传变化）不同。官方文档明确要求不要用它判断并发写入顺序。
+- 自建服务器自 2026-10-18 起已运行带该字段的镜像，2026-10-25 核实数据文件里确有 `SyncedAt`。客户端尚未接入，判定陈旧仍走 `GET /api/history/{Type}-{Hash}` 的 `createTime` 探测。
 
 ## 助手私有目录与交接
 
